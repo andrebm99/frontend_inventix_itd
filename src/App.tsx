@@ -1,122 +1,23 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
-
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
-}
-
-export default App
+import { useEffect, useState } from 'react';
+import { CheckCircle2, X } from 'lucide-react';
+import { useStore } from './hooks/useStore';
+import { AppLayout } from './layouts/AppLayout';
+import { Dashboard } from './pages/Dashboard';
+import { Workspace } from './pages/Workspace';
+import { Login } from './pages/Login';
+import { Modal } from './components/UI';
+import { RecordForm, type FormKind } from './components/RecordForm';
+import type { Page, Product, User } from './types';
+import { stock, daysLeft } from './utils/format';
+const pages:Page[]=['Resumen','Productos','Movimientos','Almacenes','Lotes y vencimientos','Proveedores','Ventas','Pronósticos','Clasificación ABC','Reabastecimiento','Reportes','Usuarios','Alertas'];
+function currentPage():Page {try{const p=decodeURIComponent(location.hash.slice(1));return pages.includes(p as Page)?p as Page:'Resumen';}catch{return 'Resumen';}}
+export default function App(){const {store,setStore,storageError}=useStore();const [page,setPage]=useState<Page>(currentPage);const [userId,setUserId]=useState(()=>sessionStorage.getItem('inventix-user')||'u1');const user=store.users.find(u=>u.id===userId&&u.active);const [form,setForm]=useState<{kind:FormKind;edit?:Product}>();const [toast,setToast]=useState('');const [mobile,setMobile]=useState(false);
+useEffect(()=>{const handler=()=>setPage(currentPage());window.addEventListener('hashchange',handler);return()=>window.removeEventListener('hashchange',handler)},[]);
+useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t)},[toast]);
+useEffect(()=>{if(user&&user.role!=='Administrador'&&page==='Usuarios')navigate('Resumen');},[page,user]);
+function navigate(p:Page){location.hash=encodeURIComponent(p);setPage(p);window.scrollTo({top:0});}
+function login(u:User){setMobile(false);setUserId(u.id);sessionStorage.setItem('inventix-user',u.id);navigate('Resumen');}
+function openForm(kind:FormKind,edit?:Product){if(!user)return;if((kind==='user'&&user.role!=='Administrador')||(user.role==='Cajero'&&kind!=='movement')){setToast('Tu perfil no permite esta acción');return;}setForm({kind,edit});}
+if(!user)return <Login users={store.users} onLogin={login}/>;
+const alerts=store.products.filter(p=>stock(store,p.id)<=p.min).length+store.lots.filter(l=>l.quantity>0&&daysLeft(l.expiry)<=30).length;
+return <><AppLayout page={page} navigate={navigate} alerts={alerts} user={user} logout={()=>{setMobile(false);setUserId('');sessionStorage.setItem('inventix-user','');setForm(undefined)}} mobile={mobile} setMobile={setMobile}>{storageError&&<p className="form-error">El navegador no pudo guardar los cambios. Esta sesión conserva los datos temporalmente.</p>}{page==='Resumen'?<Dashboard store={store} navigate={navigate} onMovement={()=>openForm('movement')} onProduct={()=>openForm('product')}/>:<Workspace key={page} page={page} store={store} setStore={setStore} openForm={openForm} notify={setToast} user={user}/>}</AppLayout>{form&&<Modal title={form.edit?'Editar producto':{product:'Nuevo producto',supplier:'Nuevo proveedor',warehouse:'Nuevo almacén',user:'Nuevo usuario',movement:page==='Ventas'?'Registrar venta':'Registrar movimiento'}[form.kind]} onClose={()=>setForm(undefined)}><RecordForm initialType={page==='Ventas'?'Salida':undefined} kind={form.kind} edit={form.edit} store={store} setStore={setStore} close={()=>setForm(undefined)} notify={setToast} user={user}/></Modal>}{toast&&<div className="toast" role="status"><CheckCircle2 size={20}/>{toast}<button aria-label="Cerrar aviso" onClick={()=>setToast('')}><X size={16}/></button></div>}</>}

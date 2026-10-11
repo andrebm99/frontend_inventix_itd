@@ -1,75 +1,28 @@
-# React + TypeScript + Vite
+# InventiX
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend de gestión de inventarios con React, TypeScript, Vite y TailwindCSS. Sin backend. Iconos: Lucide React.
 
-Currently, two official plugins are available:
+## Ejecutar
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+`npm run build` verifica TypeScript y genera `dist/`. `npm run preview` sirve esa compilación.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Código
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- `src/components`: controles, formularios y gráfico reutilizables.
+- `src/layouts`: navegación y estructura adaptable.
+- `src/pages`: resumen, vistas operativas y acceso de demostración.
+- `src/hooks`: persistencia local.
+- `src/types` y `src/data`: contratos y datos de ejemplo.
+- `src/utils`: formatos, CSV y operaciones de inventario FEFO.
+- `docs`: diagrama entidad-relación editable, SVG, PDF y reglas mínimas del modelo.
 
-```
+Se abre el panel como administrador de demostración. Cerrar sesión permite elegir otro perfil. No hay autenticación real: los roles muestran comportamiento del frontend. Los cambios se guardan en localStorage de este navegador. Para restaurar el ejemplo, elimina la clave `inventix-v1` del almacenamiento local.
+
+Registro y edición de productos; proveedores y usuarios con activación; almacenes; entradas, ventas, mermas y transferencias; lotes FEFO; alertas; clasificación ABC; estimaciones 30/60/90; pedidos en borrador; reportes CSV compatibles con Excel e impresión PDF. El gráfico y el KPI de rotación son ilustrativos; los pronósticos usan una estimación simple. Las ventas de ejemplo son históricas y el stock inicial representa su saldo posterior; el importe mostrado usa el precio actual. El modelo futuro conserva los precios históricos.
+
+No incluye envío de notificaciones, lectura por cámara ni integraciones externas. El campo SKU permite seleccionar la referencia; esas integraciones requieren la siguiente fase. La opción PDF abre la impresión de la vista actual.
