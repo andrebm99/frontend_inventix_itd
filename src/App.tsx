@@ -1,23 +1,191 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import { useStore } from './hooks/useStore';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './layouts/AppLayout';
 import { Dashboard } from './pages/Dashboard';
 import { Workspace } from './pages/Workspace';
 import { Login } from './pages/Login';
 import { Modal } from './components/UI';
 import { RecordForm, type FormKind } from './components/RecordForm';
-import type { Page, Product, User } from './types';
-import { stock, daysLeft } from './utils/format';
-const pages:Page[]=['Resumen','Productos','Movimientos','Almacenes','Lotes y vencimientos','Proveedores','Ventas','Pronósticos','Clasificación ABC','Reabastecimiento','Reportes','Usuarios','Alertas'];
-function currentPage():Page {try{const p=decodeURIComponent(location.hash.slice(1));return pages.includes(p as Page)?p as Page:'Resumen';}catch{return 'Resumen';}}
-export default function App(){const {store,setStore,storageError}=useStore();const [page,setPage]=useState<Page>(currentPage);const [userId,setUserId]=useState(()=>sessionStorage.getItem('inventix-user')||'u1');const user=store.users.find(u=>u.id===userId&&u.active);const [form,setForm]=useState<{kind:FormKind;edit?:Product}>();const [toast,setToast]=useState('');const [mobile,setMobile]=useState(false);
-useEffect(()=>{const handler=()=>setPage(currentPage());window.addEventListener('hashchange',handler);return()=>window.removeEventListener('hashchange',handler)},[]);
-useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t)},[toast]);
-useEffect(()=>{if(user&&user.role!=='Administrador'&&page==='Usuarios')navigate('Resumen');},[page,user]);
-function navigate(p:Page){location.hash=encodeURIComponent(p);setPage(p);window.scrollTo({top:0});}
-function login(u:User){setMobile(false);setUserId(u.id);sessionStorage.setItem('inventix-user',u.id);navigate('Resumen');}
-function openForm(kind:FormKind,edit?:Product){if(!user)return;if((kind==='user'&&user.role!=='Administrador')||(user.role==='Cajero'&&kind!=='movement')){setToast('Tu perfil no permite esta acción');return;}setForm({kind,edit});}
-if(!user)return <Login users={store.users} onLogin={login}/>;
-const alerts=store.products.filter(p=>stock(store,p.id)<=p.min).length+store.lots.filter(l=>l.quantity>0&&daysLeft(l.expiry)<=30).length;
-return <><AppLayout page={page} navigate={navigate} alerts={alerts} user={user} logout={()=>{setMobile(false);setUserId('');sessionStorage.setItem('inventix-user','');setForm(undefined)}} mobile={mobile} setMobile={setMobile}>{storageError&&<p className="form-error">El navegador no pudo guardar los cambios. Esta sesión conserva los datos temporalmente.</p>}{page==='Resumen'?<Dashboard store={store} navigate={navigate} onMovement={()=>openForm('movement')} onProduct={()=>openForm('product')}/>:<Workspace key={page} page={page} store={store} setStore={setStore} openForm={openForm} notify={setToast} user={user}/>}</AppLayout>{form&&<Modal title={form.edit?'Editar producto':{product:'Nuevo producto',supplier:'Nuevo proveedor',warehouse:'Nuevo almacén',user:'Nuevo usuario',movement:page==='Ventas'?'Registrar venta':'Registrar movimiento'}[form.kind]} onClose={()=>setForm(undefined)}><RecordForm initialType={page==='Ventas'?'Salida':undefined} kind={form.kind} edit={form.edit} store={store} setStore={setStore} close={()=>setForm(undefined)} notify={setToast} user={user}/></Modal>}{toast&&<div className="toast" role="status"><CheckCircle2 size={20}/>{toast}<button aria-label="Cerrar aviso" onClick={()=>setToast('')}><X size={16}/></button></div>}</>}
+import type { Page } from './types';
+import type { Producto } from './api/types';
+import { reportsApi } from './api/services';
+
+const pages: Page[] = [
+  'Resumen',
+  'Productos',
+  'Movimientos',
+  'Almacenes',
+  'Lotes y vencimientos',
+  'Proveedores',
+  'Ventas',
+  'Pronósticos',
+  'Clasificación ABC',
+  'Reabastecimiento',
+  'Reportes',
+  'Usuarios',
+  'Alertas',
+];
+
+function currentPage(): Page {
+  try {
+    const p = decodeURIComponent(location.hash.slice(1));
+    return pages.includes(p as Page) ? (p as Page) : 'Resumen';
+  } catch {
+    return 'Resumen';
+  }
+}
+
+function MainApp() {
+  const { user, token, activeNegocio, loading } = useAuth();
+  const [page, setPage] = useState<Page>(currentPage);
+  const [form, setForm] = useState<{ kind: FormKind; edit?: Producto; initialType?: string } | undefined>();
+  const [toast, setToast] = useState('');
+  const [mobile, setMobile] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    const handler = () => setPage(currentPage());
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Fetch alert count from dashboard
+  const fetchAlerts = useCallback(async () => {
+    if (!token || !activeNegocio) return;
+    try {
+      const rep = await reportsApi.getDashboard();
+      const count =
+        (rep.resumen?.productos_bajo_stock || 0) + (rep.resumen?.lotes_por_vencer || 0);
+      setAlertCount(count);
+    } catch {
+      // ignore
+    }
+  }, [token, activeNegocio]);
+
+  useEffect(() => {
+    fetchAlerts();
+  }, [fetchAlerts, refreshTrigger]);
+
+  function navigate(p: Page) {
+    location.hash = encodeURIComponent(p);
+    setPage(p);
+    window.scrollTo({ top: 0 });
+  }
+
+  function openForm(kind: FormKind, edit?: Producto, initialType?: string) {
+    setForm({ kind, edit, initialType });
+  }
+
+  const handleFormSuccess = () => {
+    setRefreshTrigger((prev) => prev + 1);
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'grid',
+          placeItems: 'center',
+          minHeight: '100vh',
+          background: '#f6f7f3',
+          fontFamily: 'Inter, sans-serif',
+          color: '#174b3b',
+        }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <h2 style={{ marginBottom: 8 }}>Iniciando InventiX...</h2>
+          <p style={{ color: '#889988', fontSize: 13 }}>
+            Conectando con la base de datos y verificando sesión
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !token) {
+    return <Login />;
+  }
+
+  return (
+    <>
+      <AppLayout
+        page={page}
+        navigate={navigate}
+        alerts={alertCount}
+        mobile={mobile}
+        setMobile={setMobile}
+      >
+        {page === 'Resumen' ? (
+          <Dashboard
+            navigate={navigate}
+            onMovement={() => openForm('movement')}
+            onProduct={() => openForm('product')}
+            onSale={() => openForm('sale')}
+            notify={setToast}
+          />
+        ) : (
+          <Workspace
+            key={page}
+            page={page}
+            openForm={openForm}
+            notify={setToast}
+            refreshTrigger={refreshTrigger}
+          />
+        )}
+      </AppLayout>
+
+      {form && (
+        <Modal
+          title={
+            form.edit
+              ? 'Editar Producto'
+              : {
+                  product: 'Nuevo Producto',
+                  supplier: 'Nuevo Proveedor',
+                  warehouse: 'Nuevo Almacén',
+                  user: 'Invitar Usuario al Equipo',
+                  movement: 'Registrar Movimiento de Inventario',
+                  sale: 'Punto de Venta / Facturación Rápida',
+                }[form.kind]
+          }
+          onClose={() => setForm(undefined)}
+        >
+          <RecordForm
+            kind={form.kind}
+            edit={form.edit}
+            initialType={form.initialType}
+            close={() => setForm(undefined)}
+            notify={setToast}
+            onSuccess={handleFormSuccess}
+          />
+        </Modal>
+      )}
+
+      {toast && (
+        <div className="toast" role="status">
+          <CheckCircle2 size={20} />
+          <span>{toast}</span>
+          <button aria-label="Cerrar aviso" onClick={() => setToast('')}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
+  );
+}

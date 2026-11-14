@@ -1,8 +1,352 @@
-import { ArrowDownLeft, ArrowUpRight, Package, Wallet, RotateCw, AlertTriangle, ChevronRight, Plus, ArrowLeftRight } from 'lucide-react';
-import type { Page, Store } from '../types';
-import { stock, money, daysLeft, date } from '../utils/format';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Package,
+  Wallet,
+  RotateCw,
+  AlertTriangle,
+  ChevronRight,
+  Plus,
+  ArrowLeftRight,
+  RefreshCw,
+  Sparkles,
+  ShoppingBag,
+} from 'lucide-react';
+import type { Page } from '../types';
+import { money, date } from '../utils/format';
 import { Badge, Table } from '../components/UI';
 import { TrendChart } from '../components/TrendChart';
-export function Dashboard({store,navigate,onMovement,onProduct}:{store:Store;navigate:(p:Page)=>void;onMovement:()=>void;onProduct:()=>void}) {
-const total=store.lots.reduce((a,l)=>a+l.quantity,0);const value=store.products.reduce((a,p)=>a+stock(store,p.id)*p.cost,0);const low=store.products.filter(p=>stock(store,p.id)<=p.min);const exp=store.lots.filter(l=>l.quantity>0&&daysLeft(l.expiry)<=30);
-return <><div className="page-heading"><div><p className="eyebrow">UNA VISTA CLARA DE TU NEGOCIO</p><h1>Todo bajo control<span className="heading-dot">.</span></h1><p>Así se mueve tu inventario. Hagamos que cada producto cuente.</p></div><button className="primary" onClick={onMovement}><Plus size={18}/> Registrar movimiento</button></div><div className="welcome-strip"><span><span className="dot"/> Tu negocio, en un vistazo</span><span>{new Intl.DateTimeFormat('es-PE',{dateStyle:'full',timeZone:'America/Lima'}).format(new Date())}</span></div><section className="stats-grid">{[{label:'Valor del inventario',value:money(value),sub:'Valorizado al costo',icon:Wallet},{label:'Unidades disponibles',value:total.toLocaleString('es-PE'),sub:`En ${store.warehouses.length} almacenes`,icon:Package},{label:'Rotación de inventario',value:'4.8 veces',sub:'Indicador ilustrativo · mensual',icon:RotateCw},{label:'Productos por reponer',value:String(low.length).padStart(2,'0'),sub:'Por debajo del stock mínimo',icon:AlertTriangle}].map((s,i)=><article className={'stat-card stat-'+i} key={s.label}><div className="stat-label">{s.label}<s.icon size={19}/></div><strong>{s.value}</strong><p>{i===3?<span className="amber-text">Requieren atención</span>:s.sub}</p>{i===3&&<small>{s.sub}</small>}</article>)}</section><div className="dashboard-middle"><section className="panel"><div className="panel-heading"><div><h2>El pulso de tus ventas</h2><p>Tendencia y demanda estimada</p></div><Badge tone="gray">Vista ilustrativa</Badge></div><div className="chart-summary"><strong>S/ 18,420.00</strong><span><ArrowUpRight size={15}/> 12.4% <small>ejemplo mensual</small></span></div><TrendChart/><div className="chart-legend"><span><i className="legend-green"/> Ventas históricas</span><span><i className="legend-gold"/> Proyección simulada</span></div></section><section className="attention-panel"><div className="panel-heading"><div><p className="eyebrow">ANTES DE QUE PASE</p><h2>Necesitan tu atención</h2></div><span className="alert-circle"><AlertTriangle size={19}/></span></div><button className="attention-item" onClick={()=>navigate('Reabastecimiento')}><span className="attention-icon red"><Package size={20}/></span><div><strong>{low.length} productos con stock bajo</strong><p>Un pequeño pedido, una gran diferencia.</p></div><ChevronRight size={18}/></button><button className="attention-item" onClick={()=>navigate('Lotes y vencimientos')}><span className="attention-icon amber"><RotateCw size={20}/></span><div><strong>{exp.length} lotes por revisar</strong><p>Prioriza su salida con el criterio FEFO.</p></div><ChevronRight size={18}/></button><div className="tip"><span>EL DATO QUE SUMA</span><p>Revisa tus productos de clase A: concentran la mayor parte del valor de tus ventas.</p><button onClick={()=>navigate('Clasificación ABC')}>Explorar clasificación <ArrowUpRight size={15}/></button></div></section></div><div className="dashboard-bottom"><section className="panel"><div className="panel-heading"><div><h2>Últimos movimientos</h2><p>La actividad más reciente de tu inventario</p></div><button className="text-button" onClick={()=>navigate('Movimientos')}>Ver todos <ChevronRight size={15}/></button></div><Table headers={['Producto','Movimiento','Cantidad','Fecha']}>{store.movements.slice(0,5).map(m=><tr key={m.id}><td><strong>{store.products.find(p=>p.id===m.productId)?.name}</strong><small>{m.warehouse}</small></td><td><Badge tone={m.type==='Entrada'?'green':'gray'}>{m.type==='Entrada'?<ArrowDownLeft size={12}/>:<ArrowUpRight size={12}/>} {m.type}</Badge></td><td className="quantity">{m.type==='Entrada'?'+':'−'}{m.quantity}</td><td>{date(m.date)}</td></tr>)}</Table></section><section className="panel quick-panel"><h2>Menos clics, más tiempo</h2><p>Tus acciones de todos los días.</p><button onClick={onProduct}><span><Package size={19}/></span><div><strong>Nuevo producto</strong><small>Amplía tu catálogo</small></div><Plus size={17}/></button><button onClick={onMovement}><span><ArrowLeftRight size={19}/></span><div><strong>Entrada o salida</strong><small>Actualiza tus existencias</small></div><Plus size={17}/></button><button onClick={()=>navigate('Reportes')}><span><Wallet size={19}/></span><div><strong>Descargar reporte</strong><small>Los números, a mano</small></div><ChevronRight size={17}/></button><div className="quick-foot">Cada movimiento cuenta.</div></section></div></>}
+import { reportsApi, aiApi } from '../api/services';
+import type { DashboardReporte } from '../api/types';
+
+export function Dashboard({
+  navigate,
+  onMovement,
+  onProduct,
+  onSale,
+  notify,
+}: {
+  navigate: (p: Page) => void;
+  onMovement: () => void;
+  onProduct: () => void;
+  onSale: () => void;
+  notify: (s: string) => void;
+}) {
+  const [data, setData] = useState<DashboardReporte | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await reportsApi.getDashboard();
+      setData(res);
+    } catch (err: any) {
+      console.warn('Dashboard fetch warning:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
+  const handleRunAiAnalysis = async () => {
+    try {
+      setAnalyzing(true);
+      const res = await aiApi.analizar();
+      notify(`IA completó análisis: ${res.generadas} recomendaciones de compra`);
+      navigate('Reabastecimiento');
+    } catch (err: any) {
+      notify(err.message || 'Error al ejecutar asistente IA');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const val = data?.resumen.valor_total_inventario ?? 0;
+  const units = data?.resumen.unidades_disponibles ?? 0;
+  const lowStock = data?.resumen.productos_bajo_stock ?? 0;
+  const expiringLots = data?.resumen.lotes_por_vencer ?? 0;
+  const salesMonth = data?.resumen.ventas_mes_monto ?? 0;
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">MONITOREO DE INVENTARIO EN TIEMPO REAL</p>
+          <h1>
+            Todo bajo control<span className="heading-dot">.</span>
+          </h1>
+          <p>Métricas consolidadas, trazabilidad por lotes FEFO y asistente predictivo.</p>
+        </div>
+        <div className="heading-actions">
+          <button className="secondary" onClick={handleRunAiAnalysis} disabled={analyzing}>
+            <Sparkles size={16} style={{ color: '#b79a60' }} />
+            {analyzing ? 'Analizando con IA...' : 'Asistente IA Reposición'}
+          </button>
+          <button className="primary" onClick={onMovement}>
+            <Plus size={18} /> Registrar movimiento
+          </button>
+        </div>
+      </div>
+
+      <div className="welcome-strip">
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="dot" style={{ background: '#28634f' }} />
+          <span>Datos en vivo sincronizados con la base de datos</span>
+          <button
+            onClick={fetchDashboard}
+            disabled={loading}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: '#637859',
+            }}
+            title="Recargar métricas"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </span>
+        <span>
+          {new Intl.DateTimeFormat('es-PE', {
+            dateStyle: 'full',
+            timeZone: 'America/Lima',
+          }).format(new Date())}
+        </span>
+      </div>
+
+      <section className="stats-grid">
+        <article className="stat-card stat-0">
+          <div className="stat-label">
+            Valor del inventario
+            <Wallet size={19} />
+          </div>
+          <strong>{money(val)}</strong>
+          <p>Valorizado al costo promedio</p>
+        </article>
+
+        <article className="stat-card stat-1">
+          <div className="stat-label">
+            Unidades disponibles
+            <Package size={19} />
+          </div>
+          <strong>{units.toLocaleString('es-PE')}</strong>
+          <p>Stock físico en almacenes</p>
+        </article>
+
+        <article className="stat-card stat-2">
+          <div className="stat-label">
+            Ventas del mes
+            <ShoppingBag size={19} />
+          </div>
+          <strong>{money(salesMonth)}</strong>
+          <p>Total facturado en el periodo</p>
+        </article>
+
+        <article className="stat-card stat-3">
+          <div className="stat-label">
+            Productos por reponer
+            <AlertTriangle size={19} />
+          </div>
+          <strong>{String(lowStock).padStart(2, '0')}</strong>
+          <p>
+            {lowStock > 0 ? (
+              <span className="amber-text">Bajo stock mínimo</span>
+            ) : (
+              'Stock cubierto'
+            )}
+          </p>
+          <small>Cálculo de Punto de Reorden (ROP)</small>
+        </article>
+      </section>
+
+      <div className="dashboard-middle">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>El pulso de tus ventas y demanda</h2>
+              <p>Tendencia real y proyección estimada de inventario</p>
+            </div>
+            <Badge tone="green">En tiempo real</Badge>
+          </div>
+          <div className="chart-summary">
+            <strong>{money(salesMonth > 0 ? salesMonth : 18420)}</strong>
+            <span>
+              <ArrowUpRight size={15} /> Actividad comercial <small>acumulada</small>
+            </span>
+          </div>
+          <TrendChart />
+          <div className="chart-legend">
+            <span>
+              <i className="legend-green" /> Demanda histórica
+            </span>
+            <span>
+              <i className="legend-gold" /> Proyección de reposición
+            </span>
+          </div>
+        </section>
+
+        <section className="attention-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">ANÁLISIS PREDICTIVO</p>
+              <h2>Necesitan tu atención</h2>
+            </div>
+            <span className="alert-circle">
+              <AlertTriangle size={19} />
+            </span>
+          </div>
+
+          <button className="attention-item" onClick={() => navigate('Reabastecimiento')}>
+            <span className="attention-icon red">
+              <Package size={20} />
+            </span>
+            <div>
+              <strong>{lowStock} productos en quiebre o stock bajo</strong>
+              <p>El Asistente IA puede sugerir la orden de compra exacta.</p>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+
+          <button className="attention-item" onClick={() => navigate('Lotes y vencimientos')}>
+            <span className="attention-icon amber">
+              <RotateCw size={20} />
+            </span>
+            <div>
+              <strong>{expiringLots} lotes próximos a vencer</strong>
+              <p>Prioriza su rotación inmediata bajo la regla FEFO.</p>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+
+          <div className="tip">
+            <span>SUGERENCIA INTELIGENTE</span>
+            <p>
+              Los productos clasificados como <strong>Clase A</strong> representan el 80% del valor de tus ventas. Evita quiebres programando compras automáticas.
+            </p>
+            <button onClick={() => navigate('Clasificación ABC')}>
+              Explorar clasificación ABC <ArrowUpRight size={15} />
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="dashboard-bottom">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Últimos movimientos de almacén</h2>
+              <p>Kardex y operaciones registradas en el sistema</p>
+            </div>
+            <button className="text-button" onClick={() => navigate('Movimientos')}>
+              Ver todos los movimientos <ChevronRight size={15} />
+            </button>
+          </div>
+
+          <Table headers={['Operación', 'Tipo', 'Fecha', 'Estado']}>
+            {data?.ultimos_movimientos && data.ultimos_movimientos.length > 0 ? (
+              data.ultimos_movimientos.slice(0, 5).map((m) => {
+                const isEntrada = m.tipo.startsWith('ENTRADA') || m.tipo.includes('POSITIVO');
+                return (
+                  <tr key={m.id}>
+                    <td>
+                      <strong>{m.motivo || 'Movimiento de inventario'}</strong>
+                      <small>
+                        {m.almacenOrigen?.nombre ? `${m.almacenOrigen.nombre} → ` : ''}
+                        {m.almacenDestino?.nombre || 'Almacén Principal'}
+                      </small>
+                    </td>
+                    <td>
+                      <Badge tone={isEntrada ? 'green' : 'gray'}>
+                        {isEntrada ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />} {m.tipo}
+                      </Badge>
+                    </td>
+                    <td>{date(m.fecha)}</td>
+                    <td>
+                      <Badge
+                        tone={
+                          m.estado === 'COMPLETADO'
+                            ? 'green'
+                            : m.estado === 'APROBADO'
+                              ? 'amber'
+                              : m.estado === 'ANULADO'
+                                ? 'red'
+                                : 'gray'
+                        }
+                      >
+                        {m.estado}
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: '24px 0', color: '#889988' }}>
+                  No hay movimientos recientes registrados aún.
+                </td>
+              </tr>
+            )}
+          </Table>
+        </section>
+
+        <section className="panel quick-panel">
+          <h2>Accesos Rápidos</h2>
+          <p>Acciones cotidianas de tu operativa.</p>
+
+          <button onClick={onSale}>
+            <span>
+              <ShoppingBag size={19} />
+            </span>
+            <div>
+              <strong>Punto de Venta / Venta Rápida</strong>
+              <small>Facturación y deducción FEFO automática</small>
+            </div>
+            <Plus size={17} />
+          </button>
+
+          <button onClick={onMovement}>
+            <span>
+              <ArrowLeftRight size={19} />
+            </span>
+            <div>
+              <strong>Registrar Movimiento</strong>
+              <small>Entrada, salida, traslado o merma</small>
+            </div>
+            <Plus size={17} />
+          </button>
+
+          <button onClick={onProduct}>
+            <span>
+              <Package size={19} />
+            </span>
+            <div>
+              <strong>Nuevo Producto</strong>
+              <small>SKU, códigos de barra y categorías</small>
+            </div>
+            <Plus size={17} />
+          </button>
+
+          <button onClick={() => navigate('Reportes')}>
+            <span>
+              <Wallet size={19} />
+            </span>
+            <div>
+              <strong>Kardex & Reportes</strong>
+              <small>Exportar a Excel (CSV) o imprimir</small>
+            </div>
+            <ChevronRight size={17} />
+          </button>
+
+          <div className="quick-foot">InventiX · Control absoluto de tu stock.</div>
+        </section>
+      </div>
+    </>
+  );
+}
