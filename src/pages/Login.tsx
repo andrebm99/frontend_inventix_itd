@@ -1,20 +1,27 @@
-import { useState, type FormEvent } from 'react';
-import { Box, ArrowRight, ShieldCheck, Building2, UserPlus, LogIn, AlertCircle } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useState, type FormEvent } from "react";
+import {
+  Box,
+  ArrowRight,
+  ShieldCheck,
+  Building2,
+  UserPlus,
+  LogIn,
+  AlertCircle,
+} from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 export function Login() {
-  const { login, register, createBusiness, user, activeNegocio, negocios } = useAuth();
-  const [tab, setTab] = useState<'login' | 'register'>('login');
+  const { login, register, createBusiness, user, activeNegocio, negocios } =
+    useAuth();
+  const [tab, setTab] = useState<"login" | "register">("login");
 
-  // Form states
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [nombre, setNombre] = useState("");
 
-  // New business creation if registered without business
-  const [bizNombre, setBizNombre] = useState('');
-  const [bizRuc, setBizRuc] = useState('');
-  const [bizTelefono, setBizTelefono] = useState('');
+  const [bizNombre, setBizNombre] = useState("");
+  const [bizRuc, setBizRuc] = useState("");
+  const [bizTelefono, setBizTelefono] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,13 +31,13 @@ export function Login() {
     setError(null);
     setLoading(true);
     try {
-      if (tab === 'login') {
+      if (tab === "login") {
         await login(email, password);
       } else {
         await register(nombre, email, password);
       }
     } catch (err: any) {
-      setError(err.message || 'Error en la autenticación');
+      setError(err.message || "Error en la autenticación");
     } finally {
       setLoading(false);
     }
@@ -43,13 +50,12 @@ export function Login() {
     try {
       await createBusiness(bizNombre, bizRuc, bizTelefono);
     } catch (err: any) {
-      setError(err.message || 'Error al registrar negocio');
+      setError(err.message || "Error al registrar negocio");
     } finally {
       setLoading(false);
     }
   };
 
-  // If user is authenticated but has no business yet, show business setup wizard
   if (user && (!activeNegocio || negocios.length === 0)) {
     return (
       <div className="login-page">
@@ -58,9 +64,12 @@ export function Login() {
             <Box size={28} /> Inventi<span className="brand-x">X</span>
           </div>
           <span className="eyebrow">CONFIGURACIÓN INICIAL</span>
-          <h1>Registra tu negocio<span className="heading-dot">.</span></h1>
+          <h1>
+            Registra tu negocio<span className="heading-dot">.</span>
+          </h1>
           <p>
-            Bienvenido, <strong>{user.nombre}</strong>. Para comenzar a controlar tu inventario, registra la sede principal de tu empresa.
+            Bienvenido, <strong>{user.nombre}</strong>. Para comenzar a
+            controlar tu inventario, registra la sede principal de tu empresa.
           </p>
         </div>
 
@@ -69,10 +78,17 @@ export function Login() {
             <Building2 size={26} />
           </span>
           <h2>Crea tu Negocio</h2>
-          <p>Se creará automáticamente la Sucursal Principal y el Almacén Principal.</p>
+          <p>
+            Se creará automáticamente la Sucursal Principal y el Almacén
+            Principal.
+          </p>
 
           {error && (
-            <div className="form-error" role="alert" style={{ marginBottom: 16 }}>
+            <div
+              className="form-error"
+              role="alert"
+              style={{ marginBottom: 16 }}
+            >
               <AlertCircle size={16} /> {error}
             </div>
           )}
@@ -110,7 +126,8 @@ export function Login() {
             </label>
 
             <button className="primary full" type="submit" disabled={loading}>
-              {loading ? 'Creando sede...' : 'Comenzar a Gestionar'} <ArrowRight size={17} />
+              {loading ? "Creando sede..." : "Comenzar a Gestionar"}{" "}
+              <ArrowRight size={17} />
             </button>
           </form>
         </section>
@@ -129,55 +146,69 @@ export function Login() {
         </div>
         <span className="eyebrow">SISTEMA B2B · CONTROL INTELIGENTE</span>
         <h1>
-          Más claridad.<br />
+          Más claridad.
+          <br />
           Mejores decisiones.
         </h1>
         <p>
-          Controla existencias, movimientos, lotes, ventas y reposición desde un solo lugar.
+          Controla existencias, movimientos, lotes, ventas y reposición desde un
+          solo lugar.
         </p>
 
         <div className="login-art">
           <PackageIllustration />
-          <span>Stock valorizado · Prevención de mermas · Control de reposición</span>
+          <span>
+            Stock valorizado · Prevención de mermas · Control de reposición
+          </span>
         </div>
       </div>
 
       <section className="login-form panel">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
+        >
           <span className="card-icon">
             <ShieldCheck size={26} />
           </span>
           <div className="segmented">
             <button
               type="button"
-              className={tab === 'login' ? 'selected' : ''}
+              className={tab === "login" ? "selected" : ""}
               onClick={() => {
-                setTab('login');
+                setTab("login");
                 setError(null);
               }}
             >
-              <LogIn size={13} style={{ display: 'inline', marginRight: 4 }} />
+              <LogIn size={13} style={{ display: "inline", marginRight: 4 }} />
               Ingresar
             </button>
             <button
               type="button"
-              className={tab === 'register' ? 'selected' : ''}
+              className={tab === "register" ? "selected" : ""}
               onClick={() => {
-                setTab('register');
+                setTab("register");
                 setError(null);
               }}
             >
-              <UserPlus size={13} style={{ display: 'inline', marginRight: 4 }} />
+              <UserPlus
+                size={13}
+                style={{ display: "inline", marginRight: 4 }}
+              />
               Crear Cuenta
             </button>
           </div>
         </div>
 
-        <h2>{tab === 'login' ? 'Bienvenido a InventiX' : 'Crea tu Cuenta'}</h2>
+        <h2>{tab === "login" ? "Bienvenido a InventiX" : "Crea tu Cuenta"}</h2>
         <p>
-          {tab === 'login'
-            ? 'Ingresa tus credenciales para acceder al panel de tu negocio.'
-            : 'Regístrate para comenzar a gestionar tu inventario.'}
+          {tab === "login"
+            ? "Ingresa tus credenciales para acceder al panel de tu negocio."
+            : "Regístrate para comenzar a gestionar tu inventario."}
         </p>
 
         {error && (
@@ -187,7 +218,7 @@ export function Login() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {tab === 'register' && (
+          {tab === "register" && (
             <label className="field">
               <span>Nombre Completo</span>
               <input
@@ -223,12 +254,20 @@ export function Login() {
             />
           </label>
 
-          <button className="primary full" type="submit" disabled={loading} style={{ marginTop: 10 }}>
-            {loading ? 'Validando...' : tab === 'login' ? 'Entrar al Negocio' : 'Registrar y Continuar'}{' '}
+          <button
+            className="primary full"
+            type="submit"
+            disabled={loading}
+            style={{ marginTop: 10 }}
+          >
+            {loading
+              ? "Validando..."
+              : tab === "login"
+                ? "Entrar al Negocio"
+                : "Registrar y Continuar"}{" "}
             <ArrowRight size={17} />
           </button>
         </form>
-
       </section>
     </div>
   );

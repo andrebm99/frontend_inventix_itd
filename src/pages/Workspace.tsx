@@ -338,8 +338,8 @@ export function Workspace({
               <option value="Todos">Todos los tipos</option>
               <option value="ENTRADA_COMPRA">Entrada por Compra</option>
               <option value="SALIDA_VENTA">Salida por Venta</option>
-              <option value="TRANSFERENCIA">Transferencia</option>
-              <option value="MERMA_VENCIMIENTO">Merma / Pérdida</option>
+              <option value="TRASLADO_INTERNO">Transferencia</option>
+              <option value="SALIDA_MERMA">Merma / Pérdida</option>
             </select>
           )}
 
@@ -515,7 +515,7 @@ export function Workspace({
                 <Badge tone={w.tipo === 'MERMAS_CUARENTENA' ? 'amber' : 'green'}>{w.tipo}</Badge>
               </div>
               <h2>{w.nombre}</h2>
-              <p>Código: {w.codigo}</p>
+              <p>Sucursal: {w.sucursal?.nombre || 'Sin especificar'}</p>
 
               <div className="warehouse-metrics">
                 <div>
@@ -897,7 +897,7 @@ export function Workspace({
                   </td>
                   <td>{u.usuario.correo}</td>
                   <td>
-                    <Badge tone="green">{u.rol}</Badge>
+                    <Badge tone="green">{typeof u.rol === 'string' ? u.rol : u.rol.nombre}</Badge>
                   </td>
                   <td>
                     <Badge tone={u.activo ? 'green' : 'gray'}>

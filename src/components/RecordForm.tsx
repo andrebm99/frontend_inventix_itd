@@ -11,6 +11,8 @@ import {
 import type {
   Almacen,
   Categoria,
+  IamRole,
+  Lote,
   MetodoPago,
   Producto,
   Proveedor,
@@ -52,6 +54,8 @@ export function RecordForm({
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [suppliers, setSuppliers] = useState<Proveedor[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<MetodoPago[]>([]);
+  const [lots, setLots] = useState<Lote[]>([]);
+  const [roles, setRoles] = useState<IamRole[]>([]);
 
   // Selected values
   const [movementType, setMovementType] = useState<string>(
@@ -65,7 +69,7 @@ export function RecordForm({
   useEffect(() => {
     async function loadMetadata() {
       try {
-        const [categoriesResult, unitsResult, productsResult, warehousesResult, branchesResult, suppliersResult, paymentMethodsResult] =
+        const [categoriesResult, unitsResult, productsResult, warehousesResult, branchesResult, suppliersResult, paymentMethodsResult, lotsResult, rolesResult] =
           await Promise.allSettled([
             catalogApi.getCategorias(),
             catalogApi.getUnidadesMedida(),
@@ -74,6 +78,8 @@ export function RecordForm({
             organizationApi.getSucursales(),
             suppliersApi.getProveedores(),
             salesApi.getMetodosPago(),
+            catalogApi.getLotes(),
+            iamApi.getRoles(),
           ]);
 
         if (categoriesResult.status === "fulfilled") setCategories(categoriesResult.value);
@@ -92,6 +98,8 @@ export function RecordForm({
           setPaymentMethods(paymentMethodsResult.value);
           if (paymentMethodsResult.value.length > 0) setSelectedPaymentMethod(paymentMethodsResult.value[0].id);
         }
+        if (lotsResult.status === "fulfilled") setLots(lotsResult.value);
+        if (rolesResult.status === "fulfilled") setRoles(rolesResult.value);
       } catch (err) {
         console.warn("Error loading form metadata:", err);
       }
@@ -124,8 +132,8 @@ export function RecordForm({
             codigoBarras: getText("codigoBarras") || undefined,
             nombre: getText("nombre"),
             descripcion: getText("descripcion") || undefined,
-            precioVenta: getNumber("precioVenta"),
-            stockMinimo: getNumber("stockMinimo"),
+            precioVentaBase: getNumber("precioVenta"),
+            manejaLotes: getText("manejaLotes") === "on",
             categoriaId: categoryId,
             unidadMedidaId: unitId,
           });
@@ -136,11 +144,9 @@ export function RecordForm({
             codigoBarras: getText("codigoBarras") || undefined,
             nombre: getText("nombre"),
             descripcion: getText("descripcion") || undefined,
-            precioVenta: getNumber("precioVenta"),
+            precioVentaBase: getNumber("precioVenta"),
             costoPromedio: getNumber("costoPromedio"),
-            stockMinimo: getNumber("stockMinimo"),
-            stockMaximo: getNumber("stockMaximo") || undefined,
-            puntoReorden: getNumber("puntoReorden") || undefined,
+            manejaLotes: getText("manejaLotes") === "on",
             categoriaId: categoryId,
             unidadMedidaId: unitId,
           });
@@ -151,12 +157,11 @@ export function RecordForm({
           throw new Error("El RUC debe tener exactamente 11 dígitos.");
         }
         await suppliersApi.createProveedor({
-          nombre: getText("nombre"),
-          razonSocial: getText("razonSocial") || undefined,
+          razonSocial: getText("razonSocial"),
           ruc: getText("ruc"),
           correo: getText("correo") || undefined,
           telefono: getText("telefono") || undefined,
-          leadTimeDias: getNumber("leadTimeDias"),
+          leadTimePromedioDias: getNumber("leadTimePromedioDias"),
         });
         notify("Proveedor registrado con éxito");
       } else if (kind === "warehouse") {
@@ -167,47 +172,83 @@ export function RecordForm({
         await organizationApi.createAlmacen({
           sucursalId,
           nombre: getText("nombre"),
-          codigo: getText("codigo"),
-          tipo: getText("tipo") as any,
+          tipo: getText("tipo") as Almacen["tipo"],
+          descripcion: getText("descripcion") || undefined,
         });
         notify("Almacén creado exitosamente");
       } else if (kind === "user") {
+        const rolId = getText("rolId") || roles[0]?.id;
+        if (!rolId) throw new Error("No hay roles disponibles para asignar");
         await iamApi.createUsuario({
           nombre: getText("nombre"),
           correo: getText("correo").toLowerCase(),
           password: getText("password"),
-          rol: getText("rol"),
+          rolId,
         });
         notify("Usuario del equipo registrado");
       } else if (kind === "movement") {
         const quantity = getNumber("cantidad");
         if (quantity <= 0) throw new Error("La cantidad debe ser mayor a 0");
 
-        const isEntrada = movementType === "ENTRADA_COMPRA";
-        const isTransfer = movementType === "TRANSFERENCIA";
+        const product = products.find((item) => item.id === selectedProduct);
+        const warehouse = warehouses.find((item) => item.id === selectedWarehouse);
+        if (!product) throw new Error("Selecciona un producto válido");
+        if (!warehouse) throw new Error("Selecciona un almacén válido");
 
-        const createdMovement = await inventoryApi.createMovimiento({
-          tipo: movementType,
+        const isEntrada = movementType === "ENTRADA_COMPRA";
+        const isTransfer = movementType === "TRASLADO_INTERNO";
+        const isAdjustment = movementType === "AJUSTE_INVENTARIO";
+        const adjustmentEntry = getText("ajusteDireccion") !== "SALIDA";
+        const usesOrigin =
+          isTransfer ||
+          movementType === "SALIDA_VENTA" ||
+          movementType === "SALIDA_MERMA" ||
+          (isAdjustment && !adjustmentEntry);
+        const usesDestination = isEntrada || isTransfer || (isAdjustment && adjustmentEntry);
+
+        let loteId: string | undefined;
+        if (product.manejaLotes) {
+          if (isEntrada) {
+            const codigoLote = getText("codigoLote");
+            const fechaVencimiento = getText("fechaVencimiento");
+            if (!codigoLote || !fechaVencimiento) {
+              throw new Error("El producto requiere número de lote y fecha de vencimiento");
+            }
+            const createdLot = await catalogApi.createLote({
+              productoId: product.id,
+              codigoLote,
+              fechaVencimiento,
+            });
+            loteId = createdLot.id;
+          } else {
+            loteId = getText("loteId");
+            if (!loteId) throw new Error("Selecciona el lote que se afectará");
+          }
+        }
+
+        await inventoryApi.createMovimiento({
+          tipo: movementType as Parameters<typeof inventoryApi.createMovimiento>[0]["tipo"],
+          sucursalId: warehouse.sucursalId,
           motivo: getText("motivo"),
-          almacenOrigenId: isEntrada ? undefined : selectedWarehouse,
+          almacenOrigenId: usesOrigin ? selectedWarehouse : undefined,
           almacenDestinoId: isTransfer
             ? getText("almacenDestinoId")
-            : selectedWarehouse,
+            : usesDestination
+              ? selectedWarehouse
+              : undefined,
+          proveedorId: isEntrada ? getText("proveedorId") || undefined : undefined,
+          completarInmediato: getText("autoComplete") === "on",
           detalles: [
             {
               productoId: selectedProduct,
               cantidad: quantity,
               costoUnitario: getNumber("costoUnitario") || undefined,
-              numeroLote: getText("numeroLote") || undefined,
-              fechaVencimiento: getText("fechaVencimiento") || undefined,
+              loteId,
             },
           ],
         });
 
-        // Automatically approve and complete if checked
         if (getText("autoComplete") === "on") {
-          await inventoryApi.aprobarMovimiento(createdMovement.id);
-          await inventoryApi.completarMovimiento(createdMovement.id);
           notify("Movimiento registrado y aplicado al Kardex");
         } else {
           notify("Movimiento guardado como borrador");
@@ -218,18 +259,24 @@ export function RecordForm({
         const unitPrice = getNumber("precioUnitario") || selectedProductRecord?.precioVenta;
         if (!unitPrice || unitPrice <= 0) throw new Error("Ingresa un precio de venta válido");
         const totalAmount = quantity * unitPrice;
+        const selectedProductLot = getText("loteIdVenta") || undefined;
+        if (selectedProductRecord?.manejaLotes && !selectedProductLot) {
+          throw new Error("Selecciona un lote disponible para la venta");
+        }
+        if (!selectedWarehouse) throw new Error("Selecciona un almacén de despacho");
+        if (!selectedPaymentMethod && !paymentMethods[0]?.id) {
+          throw new Error("No hay métodos de pago disponibles");
+        }
 
         await salesApi.createVenta({
-          almacenId: selectedWarehouse,
-          tipoComprobante: getText("tipoComprobante"),
-          numeroComprobante: getText("numeroComprobante"),
-          clienteNombre: getText("clienteNombre") || undefined,
-          clienteDocumento: getText("clienteDocumento") || undefined,
+          almacenDespachoId: selectedWarehouse,
+          numeroComprobante: getText("numeroComprobante") || undefined,
           detalles: [
             {
               productoId: selectedProduct,
               cantidad: quantity,
               precioUnitario: unitPrice,
+              loteId: selectedProductLot,
             },
           ],
           pagos: [
@@ -254,6 +301,13 @@ export function RecordForm({
   }
 
   const selectedProductData = products.find((p) => p.id === selectedProduct);
+  const selectableLots = lots.filter(
+    (lot) =>
+      lot.productoId === selectedProduct &&
+      lot.cantidadDisponible > 0 &&
+      (!selectedWarehouse || !lot.almacen || lot.almacen.id === selectedWarehouse) &&
+      !["VENCIDO", "CUARENTENA", "AGOTADO"].includes(lot.estado),
+  );
 
   return (
     <form onSubmit={submit} className="record-form">
@@ -325,30 +379,16 @@ export function RecordForm({
                 />
               </Field>
             )}
-            <Field label="Stock Mínimo (Alerta)">
-              <input
-                name="stockMinimo"
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={edit?.stockMinimo}
-              />
+            <Field label="Control de lotes">
+              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  name="manejaLotes"
+                  type="checkbox"
+                  defaultChecked={edit?.manejaLotes}
+                />
+                <span>El producto requiere lote y vencimiento</span>
+              </label>
             </Field>
-            <Field label="Punto de Reorden (ROP)">
-              <input
-                name="puntoReorden"
-                type="number"
-                min="0"
-                step="1"
-                defaultValue={edit?.puntoReorden}
-              />
-            </Field>
-            {!edit && (
-              <Field label="Stock Máximo">
-                <input name="stockMaximo" type="number" min="0" step="1" required />
-              </Field>
-            )}
           </div>
           <Field label="Descripción / Especificaciones">
             <input
@@ -364,9 +404,9 @@ export function RecordForm({
         <div className="form-grid">
           <Field label="Razón Social / Nombre Comercial">
             <input
-              name="nombre"
+              name="razonSocial"
               required
-              maxLength={120}
+              maxLength={150}
               placeholder="Distribuidora Lima S.A.C."
             />
           </Field>
@@ -391,7 +431,7 @@ export function RecordForm({
           </Field>
           <Field label="Tiempo de Entrega / Lead Time (días)">
             <input
-              name="leadTimeDias"
+              name="leadTimePromedioDias"
               type="number"
               min="1"
               step="1"
@@ -411,22 +451,27 @@ export function RecordForm({
               placeholder="Ej. Almacén Seco N° 2"
             />
           </Field>
-          <Field label="Código Interno">
-            <input
-              name="codigo"
-              required
-              maxLength={20}
-              placeholder="Ej. ALM-03"
-            />
+          <Field label="Sucursal">
+            <select name="sucursalId" required defaultValue={sucursales[0]?.id}>
+              {sucursales.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.nombre}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Tipo de Almacén">
-            <select name="tipo" defaultValue="PULMON">
+            <select name="tipo" defaultValue="RECEPCION">
               <option value="PRINCIPAL">PRINCIPAL (Distribución)</option>
-              <option value="PULMON">PULMÓN (Ventas / Mostrador)</option>
+              <option value="EXPOSICION">EXPOSICIÓN (Ventas / Mostrador)</option>
+              <option value="RECEPCION">RECEPCIÓN (Ingreso de mercadería)</option>
               <option value="MERMAS_CUARENTENA">
                 MERMAS / CUARENTENA (Aislado)
               </option>
             </select>
+          </Field>
+          <Field label="Descripción (opcional)">
+            <input name="descripcion" maxLength={255} placeholder="Uso del almacén" />
           </Field>
         </div>
       )}
@@ -453,15 +498,12 @@ export function RecordForm({
             />
           </Field>
           <Field label="Rol Asignado">
-            <select name="rol" defaultValue="OPERADOR_ALMACEN">
-              <option value="ADMIN">ADMIN (Acceso total)</option>
-              <option value="SUPERVISOR_ALMACEN">
-                SUPERVISOR_ALMACEN (Aprueba kardex)
-              </option>
-              <option value="OPERADOR_ALMACEN">
-                OPERADOR_ALMACEN (Registra entradas/salidas)
-              </option>
-              <option value="CAJERO">CAJERO (Solo ventas)</option>
+            <select name="rolId" required defaultValue={roles[0]?.id}>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.nombre}
+                </option>
+              ))}
             </select>
           </Field>
         </div>
@@ -479,14 +521,13 @@ export function RecordForm({
                   Entrada por Compra (Ingreso de lote)
                 </option>
                 <option value="SALIDA_VENTA">Salida de Inventario</option>
-                <option value="TRANSFERENCIA">
+                <option value="TRASLADO_INTERNO">
                   Transferencia entre Almacenes
                 </option>
-                <option value="MERMA_VENCIMIENTO">
+                <option value="SALIDA_MERMA">
                   Merma / Pérdida por Vencimiento
                 </option>
-                <option value="AJUSTE_POSITIVO">Ajuste Positivo (+)</option>
-                <option value="AJUSTE_NEGATIVO">Ajuste Negativo (-)</option>
+                <option value="AJUSTE_INVENTARIO">Ajuste de Inventario</option>
               </select>
             </Field>
 
@@ -506,7 +547,7 @@ export function RecordForm({
 
             <Field
               label={
-                movementType === "TRANSFERENCIA"
+                movementType === "TRASLADO_INTERNO"
                   ? "Almacén de Origen"
                   : "Almacén"
               }
@@ -523,7 +564,7 @@ export function RecordForm({
               </select>
             </Field>
 
-            {movementType === "TRANSFERENCIA" && (
+            {movementType === "TRASLADO_INTERNO" && (
               <Field label="Almacén de Destino">
                 <select name="almacenDestinoId" required>
                   <option value="">Selecciona destino</option>
@@ -534,6 +575,15 @@ export function RecordForm({
                         {w.nombre}
                       </option>
                     ))}
+                </select>
+              </Field>
+            )}
+
+            {movementType === "AJUSTE_INVENTARIO" && (
+              <Field label="Dirección del ajuste">
+                <select name="ajusteDireccion" defaultValue="ENTRADA">
+                  <option value="ENTRADA">Aumentar existencias</option>
+                  <option value="SALIDA">Disminuir existencias</option>
                 </select>
               </Field>
             )}
@@ -550,6 +600,16 @@ export function RecordForm({
 
             {movementType === "ENTRADA_COMPRA" && (
               <>
+                <Field label="Proveedor (opcional)">
+                  <select name="proveedorId" defaultValue="">
+                    <option value="">Sin proveedor</option>
+                    {suppliers.map((supplier) => (
+                      <option key={supplier.id} value={supplier.id}>
+                        {supplier.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <Field label="Costo Unitario de Compra (S/)">
                   <input
                     name="costoUnitario"
@@ -560,21 +620,30 @@ export function RecordForm({
                     defaultValue={selectedProductData?.costoPromedio || undefined}
                   />
                 </Field>
-                <Field label="Número de Lote">
-                  <input
-                    name="numeroLote"
-                    required
-                    placeholder="LOT-2026-X"
-                  />
-                </Field>
-                <Field label="Fecha de Vencimiento">
-                  <input
-                    name="fechaVencimiento"
-                    type="date"
-                    required
-                  />
-                </Field>
+                {selectedProductData?.manejaLotes && (
+                  <>
+                    <Field label="Número de Lote">
+                      <input name="codigoLote" required placeholder="LOT-2026-X" />
+                    </Field>
+                    <Field label="Fecha de Vencimiento">
+                      <input name="fechaVencimiento" type="date" required />
+                    </Field>
+                  </>
+                )}
               </>
+            )}
+
+            {movementType !== "ENTRADA_COMPRA" && selectedProductData?.manejaLotes && (
+              <Field label="Lote a afectar">
+                <select name="loteId" required defaultValue="">
+                  <option value="">Selecciona un lote</option>
+                  {selectableLots.map((lot) => (
+                    <option key={lot.id} value={lot.id}>
+                      {lot.numeroLote} · {lot.cantidadDisponible} disponibles
+                    </option>
+                  ))}
+                </select>
+              </Field>
             )}
           </div>
 
@@ -654,6 +723,19 @@ export function RecordForm({
               />
             </Field>
 
+            {selectedProductData?.manejaLotes && (
+              <Field label="Lote">
+                <select name="loteIdVenta" required defaultValue="">
+                  <option value="">Selecciona un lote disponible</option>
+                  {selectableLots.map((lot) => (
+                    <option key={lot.id} value={lot.id}>
+                      {lot.numeroLote} · {lot.cantidadDisponible} disponibles
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
             <Field label="Método de Pago">
               <select
                 value={selectedPaymentMethod}
@@ -667,35 +749,16 @@ export function RecordForm({
               </select>
             </Field>
 
-            <Field label="Tipo de Comprobante">
-              <select name="tipoComprobante" defaultValue="BOLETA">
-                <option value="BOLETA">Boleta de Venta</option>
-                <option value="FACTURA">Factura Electrónica</option>
-                <option value="TICKET">Ticket de Caja</option>
-              </select>
-            </Field>
-
             <Field label="Número de Comprobante">
-              <input name="numeroComprobante" required placeholder="Ingresa la serie y el correlativo" />
-            </Field>
-
-            <Field label="Nombre del Cliente">
-              <input
-                name="clienteNombre"
-                placeholder="Nombre o razón social"
-              />
-            </Field>
-
-            <Field label="DNI / RUC del Cliente (opcional)">
-              <input name="clienteDocumento" placeholder="8 o 11 dígitos" />
+              <input name="numeroComprobante" maxLength={50} placeholder="Ej. B001-000001" />
             </Field>
           </div>
 
           <div className="fefo-note" style={{ marginTop: 12 }}>
-            <strong>Deducción FEFO Automática</strong>
+            <strong>Control de lote y existencias</strong>
             <p>
-              El backend consumirá automáticamente el lote activo más próximo a
-              vencer de este almacén, evitando productos caducados.
+              Para productos con lotes se debe seleccionar una existencia vigente
+              del almacén antes de registrar la venta.
             </p>
           </div>
         </>

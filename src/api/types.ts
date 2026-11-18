@@ -58,6 +58,7 @@ export interface Producto {
   stockMinimo: number;
   stockMaximo?: number;
   puntoReorden?: number;
+  manejaLotes: boolean;
   categoriaId: string;
   unidadMedidaId: string;
   activo: boolean;
@@ -70,8 +71,8 @@ export interface Almacen {
   id: string;
   sucursalId: string;
   nombre: string;
-  codigo: string;
-  tipo: 'PRINCIPAL' | 'PULMON' | 'MERMAS_CUARENTENA';
+  descripcion?: string;
+  tipo: 'PRINCIPAL' | 'EXPOSICION' | 'RECEPCION' | 'MERMAS_CUARENTENA';
   activo: boolean;
   sucursal?: { id: string; nombre: string };
   _count?: { stock_almacen: number };
@@ -80,7 +81,8 @@ export interface Almacen {
 export interface Sucursal {
   id: string;
   nombre: string;
-  codigo: string;
+  ciudad?: string;
+  telefono?: string;
   direccion?: string;
   almacenes?: Almacen[];
 }
@@ -123,10 +125,9 @@ export interface Proveedor {
 export type MovimientoTipo =
   | 'ENTRADA_COMPRA'
   | 'SALIDA_VENTA'
-  | 'TRANSFERENCIA'
-  | 'MERMA_VENCIMIENTO'
-  | 'AJUSTE_POSITIVO'
-  | 'AJUSTE_NEGATIVO';
+  | 'TRASLADO_INTERNO'
+  | 'SALIDA_MERMA'
+  | 'AJUSTE_INVENTARIO';
 
 export type MovimientoEstado = 'BORRADOR' | 'APROBADO' | 'COMPLETADO' | 'ANULADO';
 
@@ -244,7 +245,7 @@ export interface DashboardReporte {
 export interface IamUserItem {
   id: string;
   usuarioId: string;
-  rol: RoleName;
+  rol: RoleName | { id: string; nombre: string; nivel_jerarquia?: number };
   activo: boolean;
   usuario: {
     id: string;
@@ -252,5 +253,12 @@ export interface IamUserItem {
     correo: string;
     activo: boolean;
   };
+}
+
+export interface IamRole {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  nivel_jerarquia?: number;
 }
 
