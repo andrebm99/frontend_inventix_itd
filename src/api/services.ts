@@ -369,6 +369,7 @@ export const inventoryApi = {
 
   createMovimiento: (data: {
     tipo: string;
+    sucursalId?: string;
     motivo: string;
     almacenOrigenId?: string;
     almacenDestinoId?: string;
@@ -377,6 +378,7 @@ export const inventoryApi = {
       cantidad: number;
       costoUnitario?: number;
       numeroLote?: string;
+      codigoLote?: string;
       fechaVencimiento?: string;
     }[];
   }) =>

@@ -279,21 +279,45 @@ export function RecordForm({
         if (quantity <= 0) throw new Error("La cantidad debe ser mayor a 0");
 
         const isEntrada = movementType === "ENTRADA_COMPRA";
-        const isTransfer = movementType === "TRANSFERENCIA";
+        const isTransfer =
+          movementType === "TRASLADO_INTERNO" || movementType === "TRANSFERENCIA";
+        const isMerma =
+          movementType === "SALIDA_MERMA" || movementType === "MERMA_VENCIMIENTO";
+        const isSalida = movementType === "SALIDA_VENTA";
+        const isAjuste =
+          movementType === "AJUSTE_INVENTARIO" || movementType.startsWith("AJUSTE");
+
+        const normalizedTipo = isTransfer
+          ? "TRASLADO_INTERNO"
+          : isMerma
+            ? "SALIDA_MERMA"
+            : isAjuste
+              ? "AJUSTE_INVENTARIO"
+              : isSalida
+                ? "SALIDA_VENTA"
+                : "ENTRADA_COMPRA";
+
+        const currentWarehouse =
+          warehouses.find((w) => w.id === selectedWarehouse) || warehouses[0];
+        const sucursalId = currentWarehouse?.sucursalId || sucursales[0]?.id;
 
         const createdMovement = await inventoryApi.createMovimiento({
-          tipo: movementType,
+          tipo: normalizedTipo,
+          sucursalId,
           motivo: getText("motivo"),
           almacenOrigenId: isEntrada ? undefined : selectedWarehouse,
           almacenDestinoId: isTransfer
             ? getText("almacenDestinoId")
-            : selectedWarehouse,
+            : isEntrada
+              ? selectedWarehouse
+              : undefined,
           detalles: [
             {
               productoId: selectedProduct,
               cantidad: quantity,
               costoUnitario: getNumber("costoUnitario") || undefined,
               numeroLote: getText("numeroLote") || undefined,
+              codigoLote: getText("numeroLote") || undefined,
               fechaVencimiento: getText("fechaVencimiento") || undefined,
             },
           ],
@@ -609,15 +633,18 @@ export function RecordForm({
                 <option value="ENTRADA_COMPRA">
                   Entrada por Compra (Ingreso de lote)
                 </option>
-                <option value="SALIDA_VENTA">Salida de Inventario</option>
-                <option value="TRANSFERENCIA">
-                  Transferencia entre Almacenes
+                <option value="TRASLADO_INTERNO">
+                  Traslado Interno entre Almacenes
                 </option>
-                <option value="MERMA_VENCIMIENTO">
+                <option value="SALIDA_MERMA">
                   Merma / Pérdida por Vencimiento
                 </option>
-                <option value="AJUSTE_POSITIVO">Ajuste Positivo (+)</option>
-                <option value="AJUSTE_NEGATIVO">Ajuste Negativo (-)</option>
+                <option value="SALIDA_VENTA">
+                  Salida de Inventario (Despacho)
+                </option>
+                <option value="AJUSTE_INVENTARIO">
+                  Ajuste de Inventario (+ / -)
+                </option>
               </select>
             </Field>
 
@@ -632,9 +659,11 @@ export function RecordForm({
 
             <Field
               label={
-                movementType === "TRANSFERENCIA"
+                movementType === "TRASLADO_INTERNO" || movementType === "TRANSFERENCIA"
                   ? "Almacén de Origen"
-                  : "Almacén"
+                  : movementType === "ENTRADA_COMPRA"
+                    ? "Almacén de Destino"
+                    : "Almacén"
               }
             >
               <select
@@ -649,7 +678,7 @@ export function RecordForm({
               </select>
             </Field>
 
-            {movementType === "TRANSFERENCIA" && (
+            {(movementType === "TRASLADO_INTERNO" || movementType === "TRANSFERENCIA") && (
               <Field label="Almacén de Destino">
                 <select name="almacenDestinoId" required>
                   <option value="">Selecciona destino</option>
