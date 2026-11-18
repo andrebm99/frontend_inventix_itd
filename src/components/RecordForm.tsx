@@ -1,5 +1,7 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
+import { Plus, Minus, Trash2, ShoppingCart, CheckCircle2 } from "lucide-react";
 import { Field } from "./UI";
+import { SearchableProductSelect } from "./SearchableProductSelect";
 import {
   catalogApi,
   inventoryApi,
@@ -25,6 +27,14 @@ export type FormKind =
   | "user"
   | "movement"
   | "sale";
+
+interface CartItem {
+  productoId: string;
+  producto: Producto;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+}
 
 export function RecordForm({
   kind,
@@ -61,6 +71,90 @@ export function RecordForm({
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>("");
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<string>("");
+
+  // POS Cart State
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [addQuantity, setAddQuantity] = useState<number>(1);
+  const [tipoComprobante, setTipoComprobante] = useState<string>("BOLETA");
+  const [montoRecibido, setMontoRecibido] = useState<string>("");
+
+  // Autogenerate unique SKU for new products or retain immutable SKU on edit
+  const autoSku = useMemo(() => {
+    if (edit?.sku) return edit.sku;
+    const prdNumbers = products
+      .map((p) => {
+        const match = (p.sku || "").match(/^PRD-(\d+)$/i);
+        return match ? parseInt(match[1], 10) : 0;
+      })
+      .filter((n) => n > 0);
+    const maxNum = prdNumbers.length > 0 ? Math.max(...prdNumbers) : products.length;
+    return `PRD-${String(maxNum + 1).padStart(4, "0")}`;
+  }, [edit, products]);
+
+  const handleAddToCart = () => {
+    if (!selectedProduct) return;
+    const prod = products.find((p) => p.id === selectedProduct);
+    if (!prod) return;
+
+    const qty = Number(addQuantity) > 0 ? Number(addQuantity) : 1;
+    const unitPrice = Number(prod.precioVenta) || 0;
+
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.productoId === prod.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        const nextQty = copy[idx].cantidad + qty;
+        copy[idx] = {
+          ...copy[idx],
+          cantidad: nextQty,
+          subtotal: Number((nextQty * unitPrice).toFixed(2)),
+        };
+        return copy;
+      }
+      return [
+        ...prev,
+        {
+          productoId: prod.id,
+          producto: prod,
+          cantidad: qty,
+          precioUnitario: unitPrice,
+          subtotal: Number((qty * unitPrice).toFixed(2)),
+        },
+      ];
+    });
+    setAddQuantity(1);
+  };
+
+  const handleUpdateQty = (productoId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((item) => {
+          if (item.productoId === productoId) {
+            const nextQty = item.cantidad + delta;
+            if (nextQty <= 0) return null;
+            return {
+              ...item,
+              cantidad: nextQty,
+              subtotal: Number((nextQty * item.precioUnitario).toFixed(2)),
+            };
+          }
+          return item;
+        })
+        .filter(Boolean) as CartItem[],
+    );
+  };
+
+  const handleRemoveFromCart = (productoId: string) => {
+    setCart((prev) => prev.filter((item) => item.productoId !== productoId));
+  };
+
+  const cartTotal = Number(
+    cart.reduce((acc, item) => acc + item.subtotal, 0).toFixed(2),
+  );
+  const vuelto =
+    Number(montoRecibido) > cartTotal
+      ? Number((Number(montoRecibido) - cartTotal).toFixed(2))
+      : 0;
 
   useEffect(() => {
     async function loadMetadata() {
@@ -120,19 +214,20 @@ export function RecordForm({
 
         if (edit) {
           await catalogApi.updateProducto(edit.id, {
-            sku: getText("sku"),
+            sku: getText("sku") || autoSku,
             codigoBarras: getText("codigoBarras") || undefined,
             nombre: getText("nombre"),
             descripcion: getText("descripcion") || undefined,
             precioVenta: getNumber("precioVenta"),
             stockMinimo: getNumber("stockMinimo"),
+            puntoReorden: getNumber("puntoReorden") || undefined,
             categoriaId: categoryId,
             unidadMedidaId: unitId,
           });
           notify("Producto actualizado exitosamente");
         } else {
           await catalogApi.createProducto({
-            sku: getText("sku"),
+            sku: getText("sku") || autoSku,
             codigoBarras: getText("codigoBarras") || undefined,
             nombre: getText("nombre"),
             descripcion: getText("descripcion") || undefined,
@@ -213,35 +308,43 @@ export function RecordForm({
           notify("Movimiento guardado como borrador");
         }
       } else if (kind === "sale") {
-        const quantity = getNumber("cantidad");
-        const selectedProductRecord = products.find((product) => product.id === selectedProduct);
-        const unitPrice = getNumber("precioUnitario") || selectedProductRecord?.precioVenta;
-        if (!unitPrice || unitPrice <= 0) throw new Error("Ingresa un precio de venta válido");
-        const totalAmount = quantity * unitPrice;
+        if (cart.length === 0) {
+          throw new Error("Debes agregar al menos un producto al detalle de la venta");
+        }
 
-        await salesApi.createVenta({
-          almacenId: selectedWarehouse,
-          tipoComprobante: getText("tipoComprobante"),
-          numeroComprobante: getText("numeroComprobante"),
-          clienteNombre: getText("clienteNombre") || undefined,
+        const selectedPm =
+          paymentMethods.find((pm) => pm.id === selectedPaymentMethod) ||
+          paymentMethods[0];
+        if (!selectedPm) {
+          throw new Error("No hay métodos de pago activos disponibles");
+        }
+
+        const createdSale = await salesApi.createVenta({
+          almacenDespachoId: selectedWarehouse,
+          tipoComprobante,
+          autoCorrelativo: true,
+          clienteNombre: getText("clienteNombre") || "Cliente Mostrador",
           clienteDocumento: getText("clienteDocumento") || undefined,
-          detalles: [
-            {
-              productoId: selectedProduct,
-              cantidad: quantity,
-              precioUnitario: unitPrice,
-            },
-          ],
+          detalles: cart.map((item) => ({
+            productoId: item.productoId,
+            cantidad: item.cantidad,
+            precioUnitario: item.precioUnitario,
+          })),
           pagos: [
             {
-              metodoPagoId:
-                selectedPaymentMethod || paymentMethods[0]?.id || "",
-              monto: totalAmount,
+              metodoPagoId: selectedPm.id,
+              monto: cartTotal,
               referencia: getText("referenciaPago") || undefined,
             },
           ],
         });
-        notify("Venta registrada y existencias descontadas según FEFO");
+        const numComprobanteOficial =
+          createdSale?.numero_comprobante ||
+          createdSale?.numeroComprobante ||
+          "EMITIDA";
+        notify(
+          `¡Venta registrada con éxito! Comprobante emitido: ${numComprobanteOficial} (Total: S/ ${cartTotal.toFixed(2)})`,
+        );
       }
 
       onSuccess();
@@ -260,21 +363,28 @@ export function RecordForm({
       {kind === "product" && (
         <>
           <div className="form-grid">
-            <Field label="Código SKU">
+            <Field label="Código SKU (Autogenerado por el sistema)">
               <input
                 name="sku"
                 required
-                defaultValue={edit?.sku}
-                maxLength={40}
-                placeholder="Ej. LAC-001"
+                value={autoSku}
+                readOnly
+                placeholder="PRD-0001"
+                style={{
+                  background: "#f1f5ee",
+                  color: "#1c3528",
+                  fontWeight: 700,
+                  cursor: "not-allowed",
+                  borderColor: "#c8d4c5",
+                }}
               />
             </Field>
-            <Field label="Código de Barras (opcional)">
+            <Field label="Código de Barras (Opcional)">
               <input
                 name="codigoBarras"
                 defaultValue={edit?.codigoBarras}
                 maxLength={50}
-                placeholder="77501234..."
+                placeholder="Ej. 7751234567890 (Escanea o ingresa EAN-13)"
               />
             </Field>
             <Field label="Nombre del Producto">
@@ -283,7 +393,7 @@ export function RecordForm({
                 required
                 defaultValue={edit?.nombre}
                 maxLength={120}
-                placeholder="Leche Gloria 400g"
+                placeholder="Ej. Arroz Extra Costeño 1 Kg"
               />
             </Field>
             <Field label="Categoría">
@@ -312,6 +422,7 @@ export function RecordForm({
                 step="0.01"
                 required
                 defaultValue={edit?.precioVenta}
+                placeholder="Ej. 4.80 (Precio al público)"
               />
             </Field>
             {!edit && (
@@ -322,6 +433,7 @@ export function RecordForm({
                   min="0"
                   step="0.01"
                   required
+                  placeholder="Ej. 3.20 (Costo inicial de compra)"
                 />
               </Field>
             )}
@@ -333,6 +445,7 @@ export function RecordForm({
                 step="1"
                 required
                 defaultValue={edit?.stockMinimo}
+                placeholder="Ej. 10 (Alerta stock bajo)"
               />
             </Field>
             <Field label="Punto de Reorden (ROP)">
@@ -342,11 +455,19 @@ export function RecordForm({
                 min="0"
                 step="1"
                 defaultValue={edit?.puntoReorden}
+                placeholder="Ej. 15 (Punto de reposición)"
               />
             </Field>
             {!edit && (
               <Field label="Stock Máximo">
-                <input name="stockMaximo" type="number" min="0" step="1" required />
+                <input
+                  name="stockMaximo"
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  placeholder="Ej. 100 (Capacidad máxima)"
+                />
               </Field>
             )}
           </div>
@@ -354,7 +475,7 @@ export function RecordForm({
             <input
               name="descripcion"
               defaultValue={edit?.descripcion}
-              placeholder="Detalle adicional del producto"
+              placeholder="Ej. Empaque sellado de 1 Kg, lote de consumo masivo..."
             />
           </Field>
         </>
@@ -367,7 +488,7 @@ export function RecordForm({
               name="nombre"
               required
               maxLength={120}
-              placeholder="Distribuidora Lima S.A.C."
+              placeholder="Ej. Distribuidora Central de Alimentos S.A.C."
             />
           </Field>
           <Field label="RUC (11 dígitos)">
@@ -376,18 +497,22 @@ export function RecordForm({
               required
               pattern="[0-9]{11}"
               maxLength={11}
-              placeholder="20100456789"
+              placeholder="Ej. 20601234567 (11 dígitos exactos)"
             />
           </Field>
           <Field label="Correo Electrónico">
             <input
               name="correo"
               type="email"
-              placeholder="ventas@proveedor.pe"
+              placeholder="Ej. pedidos@distribuidora.com.pe"
             />
           </Field>
           <Field label="Teléfono de Contacto">
-            <input name="telefono" type="tel" placeholder="014238899" />
+            <input
+              name="telefono"
+              type="tel"
+              placeholder="Ej. 987654321 o (01) 456-7890"
+            />
           </Field>
           <Field label="Tiempo de Entrega / Lead Time (días)">
             <input
@@ -396,6 +521,7 @@ export function RecordForm({
               min="1"
               step="1"
               required
+              placeholder="Ej. 3 (Días promedio de entrega)"
             />
           </Field>
         </div>
@@ -408,7 +534,7 @@ export function RecordForm({
               name="nombre"
               required
               maxLength={80}
-              placeholder="Ej. Almacén Seco N° 2"
+              placeholder="Ej. Almacén Central de Bebidas"
             />
           </Field>
           <Field label="Código Interno">
@@ -416,7 +542,7 @@ export function RecordForm({
               name="codigo"
               required
               maxLength={20}
-              placeholder="Ej. ALM-03"
+              placeholder="Ej. ALM-01 (Código interno)"
             />
           </Field>
           <Field label="Tipo de Almacén">
@@ -434,14 +560,18 @@ export function RecordForm({
       {kind === "user" && (
         <div className="form-grid">
           <Field label="Nombre Completo">
-            <input name="nombre" required placeholder="Lucía Vargas" />
+            <input
+              name="nombre"
+              required
+              placeholder="Ej. Carlos Mendoza Salas"
+            />
           </Field>
           <Field label="Correo Electrónico">
             <input
               name="correo"
               required
               type="email"
-              placeholder="lucia@inventix.pe"
+              placeholder="Ej. carlos.mendoza@inventix.pe"
             />
           </Field>
           <Field label="Contraseña Temporal">
@@ -450,6 +580,7 @@ export function RecordForm({
               required
               minLength={6}
               type="password"
+              placeholder="Mínimo 6 caracteres seguros"
             />
           </Field>
           <Field label="Rol Asignado">
@@ -490,19 +621,14 @@ export function RecordForm({
               </select>
             </Field>
 
-            <Field label="Producto">
-              <select
-                value={selectedProduct}
-                onChange={(e) => setSelectedProduct(e.target.value)}
-                required
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.sku} · {p.nombre}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <div className="field">
+              <span>Producto</span>
+              <SearchableProductSelect
+                products={products}
+                selectedProductId={selectedProduct}
+                onSelect={(id) => setSelectedProduct(id)}
+              />
+            </div>
 
             <Field
               label={
@@ -545,6 +671,7 @@ export function RecordForm({
                 min="1"
                 step="1"
                 required
+                placeholder="Ej. 50 (Unidades a ingresar o mover)"
               />
             </Field>
 
@@ -558,13 +685,14 @@ export function RecordForm({
                     step="0.01"
                     required
                     defaultValue={selectedProductData?.costoPromedio || undefined}
+                    placeholder="Ej. 3.40 (Costo unitario de adquisición)"
                   />
                 </Field>
                 <Field label="Número de Lote">
                   <input
                     name="numeroLote"
                     required
-                    placeholder="LOT-2026-X"
+                    placeholder="Ej. LOT-2026-NOV-01"
                   />
                 </Field>
                 <Field label="Fecha de Vencimiento">
@@ -582,7 +710,7 @@ export function RecordForm({
             <input
               name="motivo"
               required
-              placeholder="Ej. Factura de compra F001-124, merma por rotura, o traslado"
+              placeholder="Ej. Factura F001-124, merma por rotura, o traslado interno"
             />
           </Field>
 
@@ -604,54 +732,49 @@ export function RecordForm({
       )}
 
       {kind === "sale" && (
-        <>
+        <div className="pos-container">
           <div className="form-grid">
-            <Field label="Producto a Vender">
-              <select
-                value={selectedProduct}
-                onChange={(e) => setSelectedProduct(e.target.value)}
-                required
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.sku} · {p.nombre} (P.Venta: S/ {p.precioVenta})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
             <Field label="Almacén de Despacho">
               <select
                 value={selectedWarehouse}
                 onChange={(e) => setSelectedWarehouse(e.target.value)}
+                required
               >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.nombre}
+                    {w.nombre} ({w.tipo})
                   </option>
                 ))}
               </select>
             </Field>
 
-            <Field label="Cantidad">
-              <input
-                name="cantidad"
-                type="number"
-                min="1"
-                step="1"
-                required
-              />
+            <Field label="Tipo de Comprobante">
+              <select
+                value={tipoComprobante}
+                onChange={(e) => setTipoComprobante(e.target.value)}
+              >
+                <option value="BOLETA">Boleta de Venta (B001)</option>
+                <option value="FACTURA">Factura Electrónica (F001)</option>
+                <option value="TICKET">Ticket de Caja (T001)</option>
+              </select>
             </Field>
 
-            <Field label="Precio Unitario (S/)">
-              <input
-                name="precioUnitario"
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                defaultValue={selectedProductData?.precioVenta || undefined}
-              />
+            <Field label="Número de Comprobante">
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div className="pos-badge-auto">
+                  <CheckCircle2 size={15} style={{ color: "#28634f" }} />
+                  <span>
+                    {tipoComprobante === "FACTURA"
+                      ? "F001"
+                      : tipoComprobante === "TICKET"
+                        ? "T001"
+                        : "B001"}-AUTO (Se asignará al guardar)
+                  </span>
+                </div>
+                <small style={{ color: "#64748b", fontSize: 11 }}>
+                  El correlativo oficial consecutivo se reserva y genera en el servidor al emitir.
+                </small>
+              </div>
             </Field>
 
             <Field label="Método de Pago">
@@ -667,38 +790,293 @@ export function RecordForm({
               </select>
             </Field>
 
-            <Field label="Tipo de Comprobante">
-              <select name="tipoComprobante" defaultValue="BOLETA">
-                <option value="BOLETA">Boleta de Venta</option>
-                <option value="FACTURA">Factura Electrónica</option>
-                <option value="TICKET">Ticket de Caja</option>
-              </select>
-            </Field>
-
-            <Field label="Número de Comprobante">
-              <input name="numeroComprobante" required placeholder="Ingresa la serie y el correlativo" />
-            </Field>
-
-            <Field label="Nombre del Cliente">
+            <Field label="Nombre del Cliente (Opcional)">
               <input
                 name="clienteNombre"
-                placeholder="Nombre o razón social"
+                placeholder="Ej. Juan Pérez o Bodega Los Rosales"
+                defaultValue="Cliente Mostrador"
               />
             </Field>
 
-            <Field label="DNI / RUC del Cliente (opcional)">
-              <input name="clienteDocumento" placeholder="8 o 11 dígitos" />
+            <Field label="DNI / RUC del Cliente (Opcional)">
+              <input
+                name="clienteDocumento"
+                placeholder="Ej. 10778899112 (DNI 8 dígitos o RUC 11 dígitos)"
+              />
+            </Field>
+
+            <Field label="N° Operación / Referencia (Opcional)">
+              <input
+                name="referenciaPago"
+                placeholder="Ej. Operación Yape 884729 o N° Voucher POS"
+              />
             </Field>
           </div>
 
-          <div className="fefo-note" style={{ marginTop: 12 }}>
-            <strong>Deducción FEFO Automática</strong>
-            <p>
-              El backend consumirá automáticamente el lote activo más próximo a
-              vencer de este almacén, evitando productos caducados.
-            </p>
+          <div className="pos-add-box">
+            <div className="pos-add-box-header">
+              <ShoppingCart size={16} style={{ color: "#174b3b" }} />
+              <span>Agregar Productos al Carrito POS</span>
+            </div>
+
+            <div className="pos-add-controls">
+              <div className="pos-ctrl-product">
+                <span className="pos-ctrl-label">Buscar / Seleccionar Producto</span>
+                <SearchableProductSelect
+                  products={products}
+                  selectedProductId={selectedProduct}
+                  onSelect={(id) => setSelectedProduct(id)}
+                  placeholder="Escribe el nombre o SKU (espera 1s para filtrar)..."
+                />
+              </div>
+
+              <div className="pos-ctrl-qty">
+                <span className="pos-ctrl-label">Cantidad</span>
+                <div className="pos-qty-input-container">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={addQuantity}
+                    onChange={(e) =>
+                      setAddQuantity(Math.max(1, parseInt(e.target.value) || 1))
+                    }
+                    className="pos-qty-field"
+                  />
+                </div>
+              </div>
+
+              <div className="pos-ctrl-btn">
+                <button
+                  type="button"
+                  className="primary pos-add-btn"
+                  onClick={handleAddToCart}
+                >
+                  <Plus size={16} />
+                  <span>Agregar al Carrito</span>
+                </button>
+              </div>
+            </div>
+
+            {selectedProductData && (
+              <div className="pos-product-preview-bar">
+                <span>
+                  Catálogo: <strong>{selectedProductData.sku} · {selectedProductData.nombre}</strong>
+                </span>
+                <span>
+                  Precio: <strong>S/ {Number(selectedProductData.precioVenta || 0).toFixed(2)}</strong> ({selectedProductData.unidadMedida?.simbolo || "UND"})
+                </span>
+                <span>
+                  Subtotal: <strong>S/ {(Number(selectedProductData.precioVenta || 0) * (addQuantity || 1)).toFixed(2)}</strong>
+                </span>
+                {(selectedProductData.manejaLotes || selectedProductData.maneja_lotes) && (
+                  <span className="badge green" style={{ fontSize: 10 }}>
+                    Lote FEFO auto
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-        </>
+
+          <div className="pos-cart-panel">
+            <div className="pos-cart-header">
+              <strong style={{ fontSize: 13, color: "#22382c" }}>
+                Detalle de la Venta ({cart.length}{" "}
+                {cart.length === 1 ? "producto" : "productos"})
+              </strong>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCart([])}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#b65042",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Vaciar carrito
+                </button>
+              )}
+            </div>
+
+            {cart.length === 0 ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "24px 12px",
+                  color: "#889988",
+                  fontSize: 12,
+                }}
+              >
+                <ShoppingCart
+                  size={28}
+                  style={{ margin: "0 auto 8px", opacity: 0.4 }}
+                />
+                <p>
+                  El carrito está vacío. Selecciona un producto arriba y haz clic en{" "}
+                  <strong>Agregar</strong>.
+                </p>
+              </div>
+            ) : (
+              <table className="pos-cart-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th style={{ textAlign: "right" }}>P. Unitario</th>
+                    <th style={{ textAlign: "center" }}>Cantidad</th>
+                    <th style={{ textAlign: "right" }}>Subtotal</th>
+                    <th style={{ width: 40, textAlign: "center" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((item) => (
+                    <tr key={item.productoId}>
+                      <td>
+                        <strong>{item.producto.nombre}</strong>
+                        <small
+                          style={{
+                            display: "block",
+                            color: "#889988",
+                            fontSize: 10,
+                          }}
+                        >
+                          {item.producto.sku}
+                        </small>
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 500 }}>
+                        S/ {item.precioUnitario.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <div className="pos-qty-control">
+                          <button
+                            type="button"
+                            className="pos-qty-btn"
+                            onClick={() => handleUpdateQty(item.productoId, -1)}
+                            title="Disminuir"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <span className="pos-qty-val">{item.cantidad}</span>
+                          <button
+                            type="button"
+                            className="pos-qty-btn"
+                            onClick={() => handleUpdateQty(item.productoId, 1)}
+                            title="Aumentar"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 600,
+                          color: "#174b3b",
+                        }}
+                      >
+                        S/ {item.subtotal.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFromCart(item.productoId)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#be6051",
+                            cursor: "pointer",
+                            padding: 4,
+                          }}
+                          title="Quitar"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div className="pos-total-card">
+              <div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "#4d6957",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  Total a Pagar
+                </span>
+                <div style={{ fontSize: 11, color: "#778877" }}>
+                  {cart.reduce((acc, i) => acc + i.cantidad, 0)} unidades en total
+                </div>
+              </div>
+              <strong>S/ {cartTotal.toFixed(2)}</strong>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+                marginTop: 12,
+              }}
+            >
+              <Field label="Monto Recibido en Caja (S/)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={`S/ ${cartTotal.toFixed(2)}`}
+                  value={montoRecibido}
+                  onChange={(e) => setMontoRecibido(e.target.value)}
+                />
+              </Field>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "#4c5d52",
+                    marginBottom: 4,
+                  }}
+                >
+                  Vuelto a entregar
+                </span>
+                <div
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: vuelto > 0 ? "#28634f" : "#889988",
+                  }}
+                >
+                  S/ {vuelto.toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <div className="fefo-note" style={{ marginTop: 12 }}>
+              <strong>Deducción FEFO Automática</strong>
+              <p>
+                El backend consumirá automáticamente los lotes activos con
+                vencimiento más próximo para cada producto vendido.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {error && (
@@ -719,9 +1097,11 @@ export function RecordForm({
         <button className="primary" type="submit" disabled={loading}>
           {loading
             ? "Procesando..."
-            : edit
-              ? "Guardar Cambios"
-              : "Confirmar y Guardar"}
+            : kind === "sale"
+              ? `Emitir Comprobante (S/ ${cartTotal.toFixed(2)})`
+              : edit
+                ? "Guardar Cambios"
+                : "Confirmar y Guardar"}
         </button>
       </div>
     </form>

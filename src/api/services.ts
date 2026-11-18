@@ -239,7 +239,27 @@ export const catalogApi = {
 
   getUnidadesMedida: () => apiFetch<UnidadMedida[]>('/unidades-medida'),
 
-  getProductos: () => apiFetch<Producto[]>('/productos'),
+  getProductos: async () => {
+    const list = await apiFetch<any[]>('/productos');
+    return (list || []).map((p) => ({
+      ...p,
+      precioVenta:
+        p.precioVenta !== undefined && p.precioVenta !== null
+          ? Number(p.precioVenta)
+          : Number(p.precio_venta_base || 0),
+      costoPromedio:
+        p.costoPromedio !== undefined && p.costoPromedio !== null
+          ? Number(p.costoPromedio)
+          : Number(p.costo_promedio || 0),
+      codigoBarras: p.codigoBarras || p.codigo_barras || '',
+      categoriaId: p.categoriaId || p.categoria_id,
+      unidadMedidaId: p.unidadMedidaId || p.unidad_medida_id,
+      manejaLotes: p.manejaLotes ?? p.maneja_lotes ?? false,
+      stockMinimo: p.stockMinimo ?? 0,
+      puntoReorden: p.puntoReorden ?? 0,
+      stockMaximo: p.stockMaximo ?? 0,
+    })) as Producto[];
+  },
 
   createProducto: (data: {
     sku: string;
@@ -247,6 +267,7 @@ export const catalogApi = {
     nombre: string;
     descripcion?: string;
     precioVenta: number;
+    precioVentaBase?: number;
     costoPromedio: number;
     stockMinimo: number;
     stockMaximo?: number;
@@ -256,7 +277,11 @@ export const catalogApi = {
   }) =>
     apiFetch<Producto>('/productos', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        precioVenta: data.precioVenta,
+        precioVentaBase: data.precioVentaBase ?? data.precioVenta,
+      }),
     }),
 
   updateProducto: (
@@ -267,7 +292,11 @@ export const catalogApi = {
       nombre: string;
       descripcion: string;
       precioVenta: number;
+      precioVentaBase: number;
+      costoPromedio: number;
       stockMinimo: number;
+      stockMaximo: number;
+      puntoReorden: number;
       categoriaId: string;
       unidadMedidaId: string;
       activo: boolean;
@@ -275,7 +304,11 @@ export const catalogApi = {
   ) =>
     apiFetch<Producto>(`/productos/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        precioVenta: data.precioVenta,
+        precioVentaBase: data.precioVentaBase ?? data.precioVenta,
+      }),
     }),
 
   getLotes: async (): Promise<Lote[]> => {
@@ -366,18 +399,70 @@ export const inventoryApi = {
 export const salesApi = {
   getMetodosPago: () => apiFetch<MetodoPago[]>('/metodos-pago'),
 
-  getVentas: () => apiFetch<Venta[]>('/ventas'),
+  getVentas: async (): Promise<Venta[]> => {
+    const list = await apiFetch<any[]>('/ventas');
+    return (list ?? []).map((v: any) => {
+      const rev = v.movimiento?.other_movimiento?.[0];
+      return {
+        id: v.id,
+        numeroComprobante: v.numero_comprobante || v.numeroComprobante || 'VTA-000',
+        tipoComprobante: v.tipo_comprobante || v.tipoComprobante || 'BOLETA',
+        clienteNombre: v.cliente_nombre || v.clienteNombre || 'Cliente Mostrador',
+        clienteDocumento: v.cliente_documento || v.clienteDocumento,
+        subtotal: Number(v.subtotal ?? 0),
+        impuesto: Number(v.impuesto ?? 0),
+        total: Number(v.total ?? 0),
+        fecha: v.fecha_venta || v.fecha || v.created_at || new Date().toISOString(),
+        estado: v.estado,
+        usuario: v.usuario,
+        sucursal: v.sucursal,
+        almacen: v.almacen,
+        pagos: (v.pago_venta ?? []).map((p: any) => ({
+          id: p.id,
+          monto: Number(p.monto ?? 0),
+          referencia: p.referencia,
+          metodoPago: p.metodo_pago,
+        })),
+        detalles: (v.detalle_venta ?? v.detalles ?? []).map((d: any) => ({
+          id: d.id,
+          productoId: d.producto_id || d.productoId,
+          cantidad: Number(d.cantidad ?? 1),
+          precioUnitario: Number(d.precio_unitario ?? d.precioUnitario ?? 0),
+          subtotal: Number(d.subtotal_linea ?? d.subtotal ?? 0),
+          producto: d.producto,
+        })),
+        anulacion: rev
+          ? {
+              motivo: rev.motivo?.replace(/^REVERSIÓN \([^)]*\):\s*/, '') || rev.motivo,
+              fecha: rev.fecha_aplicacion,
+              usuario: rev.usuario,
+            }
+          : undefined,
+      };
+    });
+  },
+
+  anularVenta: (id: string, motivo: string) =>
+    apiFetch<any>(`/ventas/${id}/anular`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    }),
 
   createVenta: (data: {
-    almacenId: string;
-    tipoComprobante: string;
-    numeroComprobante: string;
+    almacenDespachoId: string;
+    numeroComprobante?: string;
+    tipoComprobante?: string;
+    autoCorrelativo?: boolean;
     clienteNombre?: string;
     clienteDocumento?: string;
+    descuentoGlobal?: number;
+    tasaImpuesto?: number;
     detalles: {
       productoId: string;
+      loteId?: string;
       cantidad: number;
-      precioUnitario: number;
+      precioUnitario?: number;
+      descuento?: number;
     }[];
     pagos: {
       metodoPagoId: string;
@@ -385,7 +470,7 @@ export const salesApi = {
       referencia?: string;
     }[];
   }) =>
-    apiFetch<Venta>('/ventas', {
+    apiFetch<any>('/ventas', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

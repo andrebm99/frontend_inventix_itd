@@ -65,8 +65,8 @@ function MainApp() {
     try {
       const rep = await reportsApi.getDashboard();
       const count =
-        (rep.resumen?.productos_bajo_stock || 0) +
-        (rep.resumen?.lotes_por_vencer || 0);
+        ((rep as any)?.alertas?.productosStockBajo ?? rep?.resumen?.productos_bajo_stock ?? 0) +
+        ((rep as any)?.alertas?.lotesPorVencer ?? rep?.resumen?.lotes_por_vencer ?? 0);
       setAlertCount(count);
     } catch {
       // ignore
@@ -146,6 +146,7 @@ function MainApp() {
 
       {form && (
         <Modal
+          size={form.kind === "sale" ? "wide" : "normal"}
           title={
             form.edit
               ? "Editar Producto"

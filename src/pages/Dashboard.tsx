@@ -15,7 +15,7 @@ import {
 import type { Page } from '../types';
 import { money, date } from '../utils/format';
 import { Badge, Table } from '../components/UI';
-import { reportsApi } from '../api/services';
+import { reportsApi, inventoryApi } from '../api/services';
 import type { DashboardReporte } from '../api/types';
 
 export function Dashboard({
@@ -29,14 +29,19 @@ export function Dashboard({
   onProduct: () => void;
   onSale: () => void;
 }) {
-  const [data, setData] = useState<DashboardReporte | null>(null);
+  const [data, setData] = useState<any | null>(null);
+  const [movements, setMovements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await reportsApi.getDashboard();
+      const [res, movs] = await Promise.all([
+        reportsApi.getDashboard().catch(() => null),
+        inventoryApi.getMovimientos().catch(() => []),
+      ]);
       setData(res);
+      setMovements(movs);
     } catch (err: any) {
       console.warn('Dashboard fetch warning:', err);
     } finally {
@@ -48,11 +53,26 @@ export function Dashboard({
     fetchDashboard();
   }, [fetchDashboard]);
 
-  const inventoryValue = data?.resumen?.valor_total_inventario ?? 0;
-  const availableUnits = data?.resumen?.unidades_disponibles ?? 0;
-  const lowStock = data?.resumen?.productos_bajo_stock ?? 0;
-  const expiringLots = data?.resumen?.lotes_por_vencer ?? 0;
-  const salesMonth = data?.resumen?.ventas_mes_monto ?? 0;
+  const inventoryValue =
+    data?.inventario?.valorTotalInventario ??
+    data?.resumen?.valor_total_inventario ??
+    0;
+  const availableUnits =
+    data?.inventario?.totalUnidadesFisicas ??
+    data?.resumen?.unidades_disponibles ??
+    0;
+  const lowStock =
+    data?.alertas?.productosStockBajo ??
+    data?.resumen?.productos_bajo_stock ??
+    0;
+  const expiringLots =
+    data?.alertas?.lotesPorVencer ??
+    data?.resumen?.lotes_por_vencer ??
+    0;
+  const salesMonth =
+    data?.ventasHoy?.totalVendido ??
+    data?.resumen?.ventas_mes_monto ??
+    0;
 
   return (
     <>
@@ -203,9 +223,9 @@ export function Dashboard({
           </div>
 
           <Table headers={['Operación', 'Tipo', 'Fecha', 'Estado']}>
-            {data?.ultimos_movimientos && data.ultimos_movimientos.length > 0 ? (
-              data.ultimos_movimientos.slice(0, 5).map((m) => {
-                const isEntrada = m.tipo.startsWith('ENTRADA') || m.tipo.includes('POSITIVO');
+            {movements.length > 0 || (data?.ultimos_movimientos && data.ultimos_movimientos.length > 0) ? (
+              (movements.length > 0 ? movements : data.ultimos_movimientos).slice(0, 5).map((m: any) => {
+                const isEntrada = m.tipo?.startsWith('ENTRADA') || m.tipo?.includes('POSITIVO');
                 return (
                   <tr key={m.id}>
                     <td>

@@ -17,10 +17,15 @@ import {
   BarChart3,
   TrendingUp,
   RefreshCw,
+  Eye,
+  Ban,
+  AlertTriangle,
 } from 'lucide-react';
 import type { Page } from '../types';
 import type { FormKind } from '../components/RecordForm';
-import { Badge, Empty, Table } from '../components/UI';
+import { Badge, Empty, Table, Modal } from '../components/UI';
+import { useAuth } from '../context/AuthContext';
+import { ThermalReceipt } from '../components/ThermalReceipt';
 import { money, date, daysLeft, downloadCSV } from '../utils/format';
 import {
   catalogApi,
@@ -91,9 +96,17 @@ export function Workspace({
   const [users, setUsers] = useState<IamUserItem[]>([]);
   const [abcClassifications, setAbcClassifications] = useState<AbcClassification[]>([]);
   const [replenishmentPolicies, setReplenishmentPolicies] = useState<ReplenishmentPolicy[]>([]);
+  const { user, activeNegocio } = useAuth();
   const [selectedForecastProduct, setSelectedForecastProduct] = useState('');
   const [selectedKardexProd, setSelectedKardexProd] = useState<string>('');
   const [kardexData, setKardexData] = useState<any[]>([]);
+
+  // Modals for Sales Actions
+  const [selectedSaleToView, setSelectedSaleToView] = useState<Venta | null>(null);
+  const [selectedSaleToCancel, setSelectedSaleToCancel] = useState<Venta | null>(null);
+  const [ticketFormat, setTicketFormat] = useState<'thermal' | 'standard'>('thermal');
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   // Load active tab data
   const loadData = useCallback(async () => {
@@ -239,6 +252,27 @@ export function Workspace({
       ...movements.map((m) => [m.fecha, m.tipo, m.estado, m.motivo || '', m.almacenDestino?.nombre || m.almacenOrigen?.nombre || '']),
     ]);
     notify('Reporte de movimientos descargado');
+  };
+
+  const handleConfirmCancelSale = async () => {
+    if (!selectedSaleToCancel) return;
+    const motivo = cancelMotivo.trim();
+    if (motivo.length < 30) {
+      notify('La justificación de anulación debe tener al menos 30 caracteres obligatorios.');
+      return;
+    }
+    setCancelLoading(true);
+    try {
+      await salesApi.anularVenta(selectedSaleToCancel.id, motivo);
+      notify(`Comprobante ${selectedSaleToCancel.numeroComprobante} anulado con éxito y stock repuesto.`);
+      setSelectedSaleToCancel(null);
+      setCancelMotivo('');
+      loadData();
+    } catch (err: any) {
+      notify(`Error al anular venta: ${err.message || 'Error del servidor'}`);
+    } finally {
+      setCancelLoading(false);
+    }
   };
 
   return (
@@ -649,26 +683,88 @@ export function Workspace({
           </div>
 
           <section className="panel">
-            <Table headers={['Comprobante', 'Fecha', 'Cliente', 'Total (S/)', 'Estado']}>
+            <Table headers={['Comprobante', 'Fecha', 'Cliente', 'Items', 'Total (S/)', 'Estado', 'Acciones']}>
               {sales
                 .filter((s) => matches((s.numeroComprobante || '') + ' ' + (s.clienteNombre || '')))
-                .map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <strong>{s.numeroComprobante}</strong>
-                      <small>{s.tipoComprobante}</small>
-                    </td>
-                    <td>{date(s.fecha)}</td>
-                    <td>
-                      <strong>{s.clienteNombre || 'Público General'}</strong>
-                      {s.clienteDocumento && <small>Doc: {s.clienteDocumento}</small>}
-                    </td>
-                    <td className="quantity">{money(s.total)}</td>
-                    <td>
-                      <Badge tone="green">{s.estado}</Badge>
-                    </td>
-                  </tr>
-                ))}
+                .map((s) => {
+                  const itemCount = s.detalles?.reduce((acc, d) => acc + (d.cantidad || 1), 0) || s.detalles?.length || 1;
+                  const saleTime = new Date(s.fecha).getTime();
+                  const hoursElapsed = (Date.now() - saleTime) / (1000 * 60 * 60);
+                  const isWithin24h = hoursElapsed <= 24;
+                  const canCancel = isWithin24h && s.estado !== 'ANULADA';
+
+                  return (
+                    <tr key={s.id}>
+                      <td>
+                        <strong>{s.numeroComprobante}</strong>
+                        <small>{s.tipoComprobante}</small>
+                      </td>
+                      <td>{date(s.fecha)}</td>
+                      <td>
+                        <strong>{s.clienteNombre || 'Público General'}</strong>
+                        {s.clienteDocumento && <small>Doc: {s.clienteDocumento}</small>}
+                      </td>
+                      <td>
+                        <span className="badge gray">{itemCount} unid.</span>
+                      </td>
+                      <td className="quantity">{money(s.total)}</td>
+                      <td>
+                        <Badge tone={s.estado === 'ANULADA' ? 'red' : s.estado === 'COMPLETADA' || s.estado === 'EMITIDA' ? 'green' : 'amber'}>
+                          {s.estado}
+                        </Badge>
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setSelectedSaleToView(s)}
+                            style={{
+                              padding: '5px 10px',
+                              fontSize: 11,
+                              height: 30,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              fontWeight: 600,
+                            }}
+                            title="Ver detalle del comprobante / boleta"
+                          >
+                            <Eye size={13} />
+                            <span>Ver boleta</span>
+                          </button>
+
+                          {canCancel && (
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => {
+                                setSelectedSaleToCancel(s);
+                                setCancelMotivo('');
+                              }}
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 11,
+                                height: 30,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                color: '#b91c1c',
+                                borderColor: '#fca5a5',
+                                background: '#fef2f2',
+                                fontWeight: 600,
+                              }}
+                              title={`Anular boleta (disponible hasta ${Math.max(0, Math.ceil(24 - hoursElapsed))}h restantes)`}
+                            >
+                              <Ban size={13} />
+                              <span>Anular boleta</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
             </Table>
             {!sales.length && !loading && <Empty text="Aún no se han emitido ventas" />}
           </section>
@@ -962,6 +1058,332 @@ export function Workspace({
               );
             })}
         </div>
+      )}
+
+      {/* MODAL VER BOLETA / COMPROBANTE */}
+      {selectedSaleToView && (
+        <Modal
+          size="wide"
+          title={`Comprobante Oficial: ${selectedSaleToView.numeroComprobante}`}
+          onClose={() => setSelectedSaleToView(null)}
+        >
+          <div className="ticket-modal-content">
+            {/* FORMAT SELECTOR */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <div className="segmented">
+                <button
+                  type="button"
+                  className={ticketFormat === 'thermal' ? 'selected' : ''}
+                  onClick={() => setTicketFormat('thermal')}
+                >
+                  Ticket Térmico (Tiquetera / Etiquetera 80mm)
+                </button>
+                <button
+                  type="button"
+                  className={ticketFormat === 'standard' ? 'selected' : ''}
+                  onClick={() => setTicketFormat('standard')}
+                >
+                  Formato Factura / Hoja A4
+                </button>
+              </div>
+            </div>
+
+            {ticketFormat === 'thermal' ? (
+              <div className="thermal-preview-wrapper">
+                <ThermalReceipt
+                  sale={selectedSaleToView}
+                  businessName={activeNegocio?.nombre}
+                  businessRuc={activeNegocio?.ruc}
+                  userName={user?.nombre}
+                />
+              </div>
+            ) : (
+              <div className="ticket-paper">
+                <div className="ticket-header">
+                  <div className="ticket-business-name">{activeNegocio?.nombre || 'BODEGA INVENTIX'}</div>
+                  <div className="ticket-business-ruc">RUC: {activeNegocio?.ruc || '20999999991'}</div>
+                  <div className="ticket-business-sub">Sistema de Punto de Venta y Control de Inventarios</div>
+                  <div className="ticket-divider" />
+                  <div className="ticket-type-badge">
+                    {selectedSaleToView.tipoComprobante === 'FACTURA'
+                      ? 'FACTURA ELECTRÓNICA'
+                      : selectedSaleToView.tipoComprobante === 'TICKET'
+                        ? 'TICKET DE VENTA'
+                        : 'BOLETA DE VENTA ELECTRÓNICA'}
+                  </div>
+                  <div className="ticket-number">{selectedSaleToView.numeroComprobante}</div>
+                  <div style={{ marginTop: 8 }}>
+                    <Badge tone={selectedSaleToView.estado === 'ANULADA' ? 'red' : 'green'}>
+                      {selectedSaleToView.estado === 'ANULADA' ? 'COMPROBANTE ANULADO' : 'EMITIDO VÁLIDO'}
+                    </Badge>
+                  </div>
+                </div>
+
+                {selectedSaleToView.estado === 'ANULADA' && (
+                  <div className="ticket-cancellation-box">
+                    <div className="ticket-cancel-title">
+                      <Ban size={15} /> <strong>INFORMACIÓN DE ANULACIÓN</strong>
+                    </div>
+                    <div className="ticket-cancel-text">
+                      <strong>Motivo registrado:</strong> {selectedSaleToView.anulacion?.motivo || 'Anulación de comprobante y reversión de inventario.'}
+                    </div>
+                    <div className="ticket-cancel-meta">
+                      <span>
+                        <strong>Anulado por:</strong> {selectedSaleToView.anulacion?.usuario?.nombre || 'Usuario Autorizado'}
+                      </span>
+                      {selectedSaleToView.anulacion?.fecha && (
+                        <span>
+                          <strong>Fecha/Hora:</strong> {new Date(selectedSaleToView.anulacion.fecha).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="ticket-meta-grid" style={{ marginTop: 14 }}>
+                  <div>
+                    <span>Fecha de Emisión:</span> <strong>{new Date(selectedSaleToView.fecha).toLocaleString()}</strong>
+                  </div>
+                  <div>
+                    <span>Atendido por:</span> <strong>{selectedSaleToView.usuario?.nombre || user?.nombre || 'Cajero'}</strong>
+                  </div>
+                  <div>
+                    <span>Cliente:</span> <strong>{selectedSaleToView.clienteNombre || 'Cliente Mostrador'}</strong>
+                  </div>
+                  <div>
+                    <span>Documento:</span> <strong>{selectedSaleToView.clienteDocumento || 'Sin documento'}</strong>
+                  </div>
+                  <div>
+                    <span>Almacén de Despacho:</span> <strong>{selectedSaleToView.almacen?.nombre || 'Almacén Principal'}</strong>
+                  </div>
+                  <div>
+                    <span>Sucursal:</span> <strong>{selectedSaleToView.sucursal?.nombre || 'Sucursal Principal'}</strong>
+                  </div>
+                </div>
+
+                <div className="ticket-divider" />
+
+                <table className="ticket-table">
+                  <thead>
+                    <tr>
+                      <th>Cant.</th>
+                      <th>Descripción / Producto</th>
+                      <th style={{ textAlign: 'right' }}>P.Unit</th>
+                      <th style={{ textAlign: 'right' }}>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedSaleToView.detalles.map((d, idx) => (
+                      <tr key={d.id || idx}>
+                        <td><strong>{d.cantidad}</strong></td>
+                        <td>
+                          <strong>{d.producto?.nombre || 'Producto'}</strong>
+                          {d.producto?.sku && (
+                            <small style={{ display: 'block', color: '#687869' }}>
+                              SKU: {d.producto.sku}
+                            </small>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>S/ {d.precioUnitario.toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}><strong>S/ {d.subtotal.toFixed(2)}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="ticket-divider" />
+
+                <div className="ticket-totals">
+                  <div className="ticket-total-row">
+                    <span>Subtotal / Op. Gravada:</span>
+                    <span>S/ {(selectedSaleToView.subtotal || selectedSaleToView.total).toFixed(2)}</span>
+                  </div>
+                  <div className="ticket-total-row">
+                    <span>IGV (18%):</span>
+                    <span>S/ {(selectedSaleToView.impuesto || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="ticket-total-row main">
+                    <span>TOTAL A PAGAR:</span>
+                    <span>S/ {selectedSaleToView.total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {selectedSaleToView.pagos && selectedSaleToView.pagos.length > 0 && (
+                  <div className="ticket-payments">
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#314436', marginBottom: 4 }}>
+                      Método de Pago:
+                    </div>
+                    {selectedSaleToView.pagos.map((p, pIdx) => (
+                      <div key={p.id || pIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5e52' }}>
+                        <span>{p.metodoPago?.nombre || 'EFECTIVO'}:</span>
+                        <span>S/ {p.monto.toFixed(2)} {p.referencia ? `(${p.referencia})` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="ticket-footer">
+                  <p>¡Gracias por su compra!</p>
+                  <small>Representación impresa de la boleta de venta electrónica generada por InventiX.</small>
+                </div>
+              </div>
+            )}
+
+            <div className="ticket-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => window.print()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}
+              >
+                <Printer size={16} />
+                <span>
+                  {ticketFormat === 'thermal'
+                    ? 'Imprimir Ticket en Tiquetera (80mm)'
+                    : 'Imprimir Comprobante A4'}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setSelectedSaleToView(null)}
+              >
+                <span>Cerrar</span>
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL ANULAR BOLETA */}
+      {selectedSaleToCancel && (
+        <Modal
+          title={`Anulación de Comprobante: ${selectedSaleToCancel.numeroComprobante}`}
+          onClose={() => {
+            if (!cancelLoading) {
+              setSelectedSaleToCancel(null);
+              setCancelMotivo('');
+            }
+          }}
+        >
+          <div style={{ padding: '4px 10px' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                padding: 14,
+                borderRadius: 8,
+                marginBottom: 16,
+              }}
+            >
+              <AlertTriangle size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
+              <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.5 }}>
+                <strong>Confirmación de anulación de venta:</strong>
+                <p style={{ margin: '4px 0 0' }}>
+                  Esta acción anulará el comprobante <strong>{selectedSaleToCancel.numeroComprobante}</strong> y reintegrará automáticamente las existencias a los lotes y almacenes de despacho originales.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: '#f8faf7',
+                border: '1px solid #dce4dc',
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 16,
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
+                <div>Comprobante: <strong>{selectedSaleToCancel.numeroComprobante}</strong> ({selectedSaleToCancel.tipoComprobante})</div>
+                <div>Monto Total: <strong>S/ {selectedSaleToCancel.total.toFixed(2)}</strong></div>
+                <div>Fecha de Emisión: <strong>{new Date(selectedSaleToCancel.fecha).toLocaleString()}</strong></div>
+                <div>Usuario Responsable: <strong>{user?.nombre || user?.correo}</strong> (ID: {user?.id?.slice(0, 8)}...)</div>
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#2b3f33' }}>
+                Motivo / Justificación de la Anulación <span style={{ color: '#dc2626' }}>* (Mínimo 30 letras obligatorio)</span>
+              </span>
+              <textarea
+                rows={4}
+                value={cancelMotivo}
+                onChange={(e) => setCancelMotivo(e.target.value)}
+                placeholder="Ingresa la justificación formal (ej. Error en la cantidad de productos cobrados en caja, solicitado expresamente por el cliente en ventanilla)..."
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  borderRadius: 8,
+                  border: '1px solid #d0dad1',
+                  padding: 10,
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            </label>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 6,
+                fontSize: 11,
+              }}
+            >
+              <span
+                style={{
+                  color: cancelMotivo.trim().length >= 30 ? '#166534' : '#b91c1c',
+                  fontWeight: 600,
+                }}
+              >
+                {cancelMotivo.trim().length >= 30
+                  ? `✓ Justificación válida (${cancelMotivo.trim().length} caracteres)`
+                  : `Faltan ${30 - cancelMotivo.trim().length} letras para cumplir el mínimo de 30`}
+              </span>
+              <span style={{ color: '#88988b' }}>{cancelMotivo.trim().length} / 30 letras</span>
+            </div>
+
+            <div
+              className="form-actions"
+              style={{
+                marginTop: 22,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+              }}
+            >
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setSelectedSaleToCancel(null);
+                  setCancelMotivo('');
+                }}
+                disabled={cancelLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handleConfirmCancelSale}
+                disabled={cancelMotivo.trim().length < 30 || cancelLoading}
+                style={{
+                  background: '#dc2626',
+                  borderColor: '#b91c1c',
+                }}
+              >
+                {cancelLoading ? 'Anulando...' : 'Confirmar Anulación'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

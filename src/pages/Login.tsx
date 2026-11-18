@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Box, ArrowRight, ShieldCheck, Building2, UserPlus, LogIn, AlertCircle } from 'lucide-react';
+import { Box, ArrowRight, ShieldCheck, Building2, UserPlus, LogIn, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
@@ -7,8 +7,8 @@ export function Login() {
   const [tab, setTab] = useState<'login' | 'register'>('login');
 
   // Form states
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('propietario@demo.inventix.pe');
+  const [password, setPassword] = useState('Demo1234!');
   const [nombre, setNombre] = useState('');
 
   // New business creation if registered without business
@@ -31,6 +31,20 @@ export function Login() {
       }
     } catch (err: any) {
       setError(err.message || 'Error en la autenticación');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const quickLogin = async (demoEmail: string, demoPass: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPass);
+    setError(null);
+    setLoading(true);
+    try {
+      await login(demoEmail, demoPass);
+    } catch (err: any) {
+      setError(err.message || 'Error al conectar con credenciales demo');
     } finally {
       setLoading(false);
     }
@@ -133,12 +147,12 @@ export function Login() {
           Mejores decisiones.
         </h1>
         <p>
-          Controla existencias, movimientos, lotes, ventas y reposición desde un solo lugar.
+          Control de inventario en tiempo real, trazabilidad FEFO por lotes, punto de venta y asistente predictivo. Conectado a la API NestJS y base de datos MySQL.
         </p>
 
         <div className="login-art">
           <PackageIllustration />
-          <span>Stock valorizado · Prevención de mermas · Control de reposición</span>
+          <span>Stock valorizado · Prevención de mermas · Asistente IA</span>
         </div>
       </div>
 
@@ -207,7 +221,7 @@ export function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@inventix.com"
+              placeholder="propietario@demo.inventix.pe"
             />
           </label>
 
@@ -229,6 +243,37 @@ export function Login() {
           </button>
         </form>
 
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #edf0e6' }}>
+          <p style={{ fontSize: 11, color: '#889988', marginBottom: 10, textAlign: 'center' }}>
+            Acceso rápido con datos cargados:
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="secondary"
+              style={{ flex: 1, fontSize: 11, padding: '8px 10px' }}
+              onClick={() => quickLogin('propietario@demo.inventix.pe', 'Demo1234!')}
+              disabled={loading}
+            >
+              <Sparkles size={14} style={{ color: '#b79a60' }} />
+              Propietario Demo
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              style={{ flex: 1, fontSize: 11, padding: '8px 10px' }}
+              onClick={() => quickLogin('vendedor@demo.inventix.pe', 'Demo1234!')}
+              disabled={loading}
+            >
+              <Sparkles size={14} style={{ color: '#b79a60' }} />
+              Vendedor Demo
+            </button>
+          </div>
+        </div>
+
+        <small style={{ display: 'block', marginTop: 14, textAlign: 'center' }}>
+          API Backend NestJS activa en <code>localhost:3000</code>. Autenticación JWT y RBAC multi-tenant.
+        </small>
       </section>
     </div>
   );

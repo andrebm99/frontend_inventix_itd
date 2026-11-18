@@ -966,6 +966,10 @@ tr:last-child td {
   max-height: 90vh;
   overflow: auto;
 }
+.modal.modal-wide,
+.modal:has(.pos-container) {
+  width: min(1000px, 95vw);
+}
 .modal::backdrop {
   background: #143d3566;
   backdrop-filter: blur(3px);
@@ -1575,4 +1579,807 @@ small {
 
 .forecast-controls select {
   min-width: 280px;
+}
+
+/* POS & Carrito de Ventas */
+.pos-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pos-cart-panel {
+  border: 1px solid #dce2db;
+  border-radius: 10px;
+  background: #fafbfa;
+  padding: 14px;
+}
+.pos-cart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.pos-cart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e7ebe5;
+}
+.pos-cart-table th {
+  background: #f1f4ee;
+  color: #46584c;
+  padding: 8px 12px;
+  font-weight: 600;
+  text-align: left;
+  font-size: 11px;
+}
+.pos-cart-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf1eb;
+  vertical-align: middle;
+}
+.pos-qty-control {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d0d7cf;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.pos-qty-btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: #f6f8f4;
+  border: none;
+  color: #3b5043;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pos-qty-btn:hover {
+  background: #e3ebd7;
+}
+.pos-qty-val {
+  width: 36px;
+  text-align: center;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+.pos-total-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: #eaf3ec;
+  border: 1px solid #c9decb;
+  border-radius: 9px;
+  margin-top: 8px;
+}
+.pos-total-card strong {
+  font-size: 22px;
+  color: #174b3b;
+  font-weight: 700;
+}
+.pos-badge-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f3ed;
+  border: 1px solid #d5ded2;
+  color: #345c48;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+/* POS Controls & Add Product Bar */
+.pos-add-box {
+  background: #ffffff;
+  border: 1px solid #dce2db;
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.pos-add-box-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f352b;
+}
+
+.pos-add-controls {
+  display: grid;
+  grid-template-columns: 1fr 130px 170px;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.pos-ctrl-product,
+.pos-ctrl-qty,
+.pos-ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pos-ctrl-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4c5d52;
+}
+
+.pos-qty-input-container {
+  display: flex;
+  height: 42px;
+}
+
+.pos-qty-field {
+  width: 100%;
+  height: 42px !important;
+  box-sizing: border-box;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid #dce2db;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 8px;
+}
+
+.pos-add-btn {
+  height: 42px !important;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+  background: #174b3b;
+  color: #ffffff;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pos-add-btn:hover {
+  background: #24634f;
+}
+
+.pos-product-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 14px;
+  background: #f7faf6;
+  border-radius: 8px;
+  border: 1px dashed #d0ded1;
+  font-size: 11px;
+  color: #4f6658;
+}
+
+/* Searchable Product Select with Debounce */
+.searchable-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.searchable-select-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dce2db;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 12px;
+  height: 42px;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.searchable-select-box:hover {
+  border-color: #b7c4b6;
+}
+
+.searchable-select-box.open {
+  border-color: #34856b;
+  box-shadow: 0 0 0 2px rgba(52, 133, 107, 0.15);
+}
+
+.searchable-icon-search {
+  color: #798d80;
+  flex-shrink: 0;
+}
+
+.searchable-input {
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100%;
+  font-size: 13px;
+  color: #223b31;
+}
+
+.searchable-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.searchable-clear {
+  border: none;
+  background: transparent;
+  color: #92a297;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.searchable-clear:hover {
+  background: #f0f3ee;
+  color: #33443a;
+}
+
+.searchable-arrow {
+  color: #798d80;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.searchable-arrow.rotate {
+  transform: rotate(180deg);
+}
+
+.searchable-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 999;
+  background: #ffffff;
+  border: 1px solid #dce2db;
+  border-radius: 10px;
+  box-shadow: 0 14px 35px rgba(23, 60, 52, 0.16);
+  max-height: 290px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.searchable-header-hint {
+  padding: 8px 12px;
+  background: #f8faf6;
+  border-bottom: 1px solid #eef1ea;
+  font-size: 11px;
+  color: #64776b;
+}
+
+.searchable-status-debouncing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a06e1e;
+  font-weight: 500;
+}
+
+.searchable-list {
+  overflow-y: auto;
+  max-height: 240px;
+}
+
+.searchable-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f2f5ef;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.searchable-item:last-child {
+  border-bottom: none;
+}
+
+.searchable-item:hover {
+  background: #f3f7f0;
+}
+
+.searchable-item.selected {
+  background: #eaf3ec;
+}
+
+.searchable-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.searchable-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchable-item-sku {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e8eee6;
+  color: #274737;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.searchable-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f3329;
+}
+
+.searchable-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: #728477;
+}
+
+.searchable-item-cat {
+  color: #5b7566;
+}
+
+.searchable-item-lote {
+  background: #fef5e7;
+  color: #996e1b;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.searchable-item-price {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #174b3b;
+}
+
+.searchable-empty {
+  padding: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #839487;
+}
+
+/* Ticket & Printable Receipt Styles */
+.ticket-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 10px 14px;
+}
+.ticket-paper {
+  background: #ffffff;
+  border: 1px solid #e1e7de;
+  border-radius: 12px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+}
+.ticket-header {
+  text-align: center;
+}
+.ticket-business-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: #174b3b;
+  letter-spacing: -0.5px;
+}
+.ticket-business-ruc {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b5042;
+  margin-top: 2px;
+}
+.ticket-business-sub {
+  font-size: 11px;
+  color: #728477;
+  margin-top: 2px;
+}
+.ticket-divider {
+  border-bottom: 1px dashed #d5ded2;
+  margin: 14px 0;
+}
+.ticket-type-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #24553e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ticket-number {
+  font-size: 20px;
+  font-family: monospace;
+  font-weight: 800;
+  color: #1a3328;
+  margin-top: 3px;
+}
+.ticket-cancellation-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 14px 0;
+  color: #991b1b;
+  font-size: 12px;
+  text-align: left;
+}
+.ticket-cancel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.ticket-cancel-text {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.ticket-cancel-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: #7f1d1d;
+  border-top: 1px dashed #fca5a5;
+  padding-top: 6px;
+}
+.ticket-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: #4b5d51;
+  text-align: left;
+}
+.ticket-meta-grid span {
+  color: #798b7e;
+  margin-right: 4px;
+}
+.ticket-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ticket-table th {
+  background: #f4f7f2;
+  color: #3a4e41;
+  padding: 7px 10px;
+  font-weight: 600;
+  font-size: 11px;
+  text-align: left;
+}
+.ticket-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #f0f3ed;
+  vertical-align: top;
+}
+.ticket-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 280px;
+  margin-left: auto;
+  font-size: 12px;
+}
+.ticket-total-row {
+  display: flex;
+  justify-content: space-between;
+  color: #4c5e52;
+}
+.ticket-total-row.main {
+  font-size: 16px;
+  font-weight: 800;
+  color: #174b3b;
+  border-top: 2px solid #174b3b;
+  padding-top: 6px;
+  margin-top: 4px;
+}
+.ticket-payments {
+  background: #f7faf6;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 14px;
+  border: 1px solid #e2ebe0;
+  text-align: left;
+}
+.ticket-footer {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 11px;
+  color: #7d8f82;
+}
+.ticket-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ==================== THERMAL RECEIPT / TIQUETERA 80mm ==================== */
+.thermal-preview-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: #f1f5ee;
+  padding: 20px 10px;
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.thermal-ticket-container {
+  width: 320px;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #000000;
+  font-family: 'Courier New', Courier, monospace, 'Consolas', monospace;
+  font-size: 11.5px;
+  line-height: 1.35;
+  padding: 16px 14px;
+  border: 1px solid #d5ddd3;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+}
+
+.thermal-center {
+  text-align: center;
+}
+
+.thermal-bold {
+  font-weight: 700;
+}
+
+.thermal-title {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+.thermal-subtitle {
+  font-size: 12px;
+}
+
+.thermal-invoice-no {
+  font-size: 16px;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+.thermal-line {
+  font-size: 10.5px;
+}
+
+.thermal-dashed {
+  border-bottom: 1px dashed #000000;
+  margin: 8px 0;
+}
+
+.thermal-dotted {
+  border-bottom: 1px dotted #000000;
+  margin: 6px 0;
+}
+
+.thermal-double-line {
+  border-bottom: 2px solid #000000;
+  margin: 8px 0;
+}
+
+.thermal-meta {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.thermal-meta span {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.thermal-cancel-box {
+  border: 1px dashed #b91c1c;
+  background: #fff5f5;
+  color: #b91c1c;
+  padding: 6px 8px;
+  margin: 8px 0;
+  font-size: 10.5px;
+}
+
+.thermal-table-header {
+  display: flex;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.th-qty {
+  width: 34px;
+}
+
+.th-desc {
+  flex: 1;
+}
+
+.th-price {
+  width: 50px;
+  text-align: right;
+}
+
+.th-total {
+  width: 55px;
+  text-align: right;
+}
+
+.thermal-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thermal-item-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.thermal-item-top {
+  display: flex;
+  font-size: 11px;
+}
+
+.thermal-item-sku {
+  font-size: 9.5px;
+  color: #444444;
+  margin-left: 34px;
+}
+
+.thermal-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+.thermal-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.thermal-grand-total {
+  font-size: 14px;
+}
+
+.thermal-payments {
+  font-size: 11px;
+}
+
+.thermal-barcode-section {
+  text-align: center;
+  margin: 6px 0;
+}
+
+.thermal-barcode-svg {
+  margin: 0 auto;
+}
+
+.thermal-barcode-code {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+.thermal-hash {
+  font-size: 8.5px;
+  color: #333333;
+}
+
+.thermal-footer {
+  font-size: 10px;
+}
+
+.thermal-cut-guide {
+  font-size: 9px;
+  margin-top: 10px;
+  color: #666666;
+}
+
+/* Print Rules specifically for Thermal POS Printers (80mm / 58mm) */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  html, body {
+    width: 80mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  body > *:not(dialog[open]),
+  .sidebar,
+  .topbar,
+  .main-shell,
+  .toast,
+  .modal-title,
+  .ticket-actions,
+  .segmented,
+  dialog::backdrop {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  dialog[open].modal {
+    position: static !important;
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .ticket-modal-content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .thermal-preview-wrapper {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .thermal-ticket-container {
+    width: 72mm !important;
+    max-width: 76mm !important;
+    margin: 0 auto !important;
+    padding: 2mm 3mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    display: block !important;
+  }
 }

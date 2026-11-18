@@ -26,10 +26,12 @@ export function Modal({
   title,
   onClose,
   children,
+  size = "normal",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  size?: "normal" | "wide";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -42,7 +44,7 @@ export function Modal({
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="modal"
+      className={`modal ${size === "wide" ? "modal-wide" : ""}`}
     >
       <div className="modal-title">
         <h2>{title}</h2>

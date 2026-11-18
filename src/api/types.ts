@@ -64,6 +64,8 @@ export interface Producto {
   categoria?: { id: string; nombre: string };
   unidadMedida?: { id: string; nombre: string; simbolo: string };
   stockTotal?: number;
+  manejaLotes?: boolean;
+  maneja_lotes?: boolean;
 }
 
 export interface Almacen {
@@ -174,10 +176,26 @@ export interface Venta {
   tipoComprobante: string;
   clienteNombre?: string;
   clienteDocumento?: string;
+  subtotal?: number;
+  impuesto?: number;
   total: number;
   fecha: string;
   estado: string;
+  usuario?: { id: string; nombre: string; correo?: string };
+  sucursal?: { id: string; nombre: string };
+  almacen?: { id: string; nombre: string };
+  pagos?: {
+    id: string;
+    monto: number;
+    referencia?: string;
+    metodoPago?: { id?: string; nombre: string };
+  }[];
   detalles: VentaDetalle[];
+  anulacion?: {
+    motivo: string;
+    fecha: string;
+    usuario?: { id: string; nombre: string; correo?: string };
+  };
 }
 
 export interface AbcClassification {
