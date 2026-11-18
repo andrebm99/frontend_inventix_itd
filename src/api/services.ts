@@ -97,6 +97,8 @@ interface ApiMovimiento {
   fecha_aplicacion?: string;
   almacen_origen_id?: string;
   almacen_destino_id?: string;
+  proveedor_id?: string;
+  proveedor?: { id: string; razon_social?: string; razonSocial?: string; ruc?: string; nombre?: string };
   almacen_movimiento_almacen_origen_idToalmacen?: { id: string; nombre: string };
   almacen_movimiento_almacen_destino_idToalmacen?: { id: string; nombre: string };
   usuario?: { id: string; nombre: string };
@@ -106,6 +108,7 @@ interface ApiMovimiento {
     cantidad: number;
     costo_unitario: number | string;
     producto?: { id: string; nombre: string; sku: string };
+    producto_lote?: { id: string; codigo_lote: string; fecha_vencimiento?: string };
   }>;
 }
 
@@ -157,6 +160,16 @@ function normalizeMovement(item: ApiMovimiento): Movimiento {
     almacenDestinoId: item.almacen_destino_id,
     almacenOrigen: item.almacen_movimiento_almacen_origen_idToalmacen,
     almacenDestino: item.almacen_movimiento_almacen_destino_idToalmacen,
+    proveedorId: item.proveedor_id || (item.proveedor ? item.proveedor.id : undefined),
+    proveedor: item.proveedor
+      ? {
+          id: item.proveedor.id,
+          razonSocial: item.proveedor.razon_social || item.proveedor.razonSocial || item.proveedor.nombre,
+          razon_social: item.proveedor.razon_social,
+          ruc: item.proveedor.ruc,
+          nombre: item.proveedor.nombre || item.proveedor.razon_social || item.proveedor.razonSocial,
+        }
+      : undefined,
     usuario: item.usuario,
     detalles: (item.detalle_movimiento ?? []).map((detail) => ({
       id: detail.id,
@@ -164,7 +177,16 @@ function normalizeMovement(item: ApiMovimiento): Movimiento {
       cantidad: detail.cantidad,
       costoUnitario: Number(detail.costo_unitario),
       producto: detail.producto,
+      producto_lote: detail.producto_lote,
+      lote: detail.producto_lote
+        ? {
+            id: detail.producto_lote.id,
+            codigoLote: detail.producto_lote.codigo_lote,
+            fechaVencimiento: detail.producto_lote.fecha_vencimiento,
+          }
+        : undefined,
     })),
+    detalle_movimiento: item.detalle_movimiento,
   };
 }
 
@@ -258,6 +280,7 @@ export const catalogApi = {
       stockMinimo: p.stockMinimo ?? 0,
       puntoReorden: p.puntoReorden ?? 0,
       stockMaximo: p.stockMaximo ?? 0,
+      stockTotal: p.stockTotal !== undefined && p.stockTotal !== null ? Number(p.stockTotal) : undefined,
     })) as Producto[];
   },
 
@@ -360,17 +383,33 @@ export const suppliersApi = {
 };
 
 export const inventoryApi = {
-  getStock: () => apiFetch<StockAlmacen[]>('/stock'),
+  getStock: async () => {
+    const list = await apiFetch<any[]>('/stock');
+    return (list || []).map((s) => ({
+      ...s,
+      id: s.id,
+      almacenId: s.almacenId || s.almacen_id,
+      productoId: s.productoId || s.producto_id,
+      codigoExistencia: s.codigoExistencia || s.codigo_existencia,
+      cantidad: s.cantidad !== undefined ? Number(s.cantidad) : Number(s.cantidad_actual || 0),
+      almacen: s.almacen,
+      producto: s.producto,
+    })) as StockAlmacen[];
+  },
 
   getMovimientos: async (): Promise<Movimiento[]> => {
     const response = await apiFetch<ApiMovimiento[]>('/movimientos');
     return response.map(normalizeMovement);
   },
 
+  getMovimiento: (id: string) =>
+    apiFetch<ApiMovimiento>(`/movimientos/${id}`).then(normalizeMovement),
+
   createMovimiento: (data: {
     tipo: string;
     sucursalId?: string;
-    motivo: string;
+    proveedorId?: string;
+    motivo?: string;
     almacenOrigenId?: string;
     almacenDestinoId?: string;
     detalles: {
@@ -387,6 +426,12 @@ export const inventoryApi = {
       body: JSON.stringify(data),
     }).then(normalizeMovement),
 
+  updateMovimiento: (id: string, data: any) =>
+    apiFetch<ApiMovimiento>(`/movimientos/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then(normalizeMovement),
+
   aprobarMovimiento: (id: string) =>
     apiFetch<ApiMovimiento>(`/movimientos/${id}/aprobar`, {
       method: 'POST',
@@ -396,6 +441,12 @@ export const inventoryApi = {
     apiFetch<ApiMovimiento>(`/movimientos/${id}/completar`, {
       method: 'POST',
     }).then(normalizeMovement),
+
+  anularMovimiento: (id: string, motivo?: string) =>
+    apiFetch<any>(`/movimientos/${id}/anular`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo: motivo || 'Anulación solicitada por el usuario' }),
+    }),
 };
 
 export const salesApi = {

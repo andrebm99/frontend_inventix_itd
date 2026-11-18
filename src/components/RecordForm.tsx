@@ -18,6 +18,7 @@ import type {
   Proveedor,
   Sucursal,
   UnidadMedida,
+  StockAlmacen,
 } from "../api/types";
 
 export type FormKind =
@@ -36,6 +37,15 @@ interface CartItem {
   subtotal: number;
 }
 
+interface MovementLineItem {
+  productoId: string;
+  producto?: Producto;
+  cantidad: number;
+  costoUnitario?: number;
+  numeroLote?: string;
+  fechaVencimiento?: string;
+}
+
 export function RecordForm({
   kind,
   edit,
@@ -45,7 +55,7 @@ export function RecordForm({
   onSuccess,
 }: {
   kind: FormKind;
-  edit?: Producto;
+  edit?: any;
   initialType?: string;
   close: () => void;
   notify: (s: string) => void;
@@ -71,6 +81,16 @@ export function RecordForm({
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>("");
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<string>("");
+
+  // Movement multiple items state & warehouse selections
+  const [stockList, setStockList] = useState<StockAlmacen[]>([]);
+  const [movementOriginWarehouse, setMovementOriginWarehouse] = useState<string>("");
+  const [movementDestWarehouse, setMovementDestWarehouse] = useState<string>("");
+  const [movementSupplierId, setMovementSupplierId] = useState<string>("");
+  const [movementLines, setMovementLines] = useState<MovementLineItem[]>([]);
+  const [addCost, setAddCost] = useState<string>("");
+  const [addLote, setAddLote] = useState<string>("");
+  const [addFechaVenc, setAddFechaVenc] = useState<string>("");
 
   // POS Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -156,32 +176,163 @@ export function RecordForm({
       ? Number((Number(montoRecibido) - cartTotal).toFixed(2))
       : 0;
 
+  // Stock in warehouse calculator
+  const getStockInWarehouse = (prodId: string, whId: string) => {
+    if (!prodId || !whId) return 0;
+    return stockList
+      .filter(
+        (s) =>
+          (s.almacenId === whId || (s as any).almacen_id === whId) &&
+          (s.productoId === prodId || (s as any).producto_id === prodId),
+      )
+      .reduce((acc, curr) => acc + Number(curr.cantidad ?? (curr as any).cantidad_actual ?? 0), 0);
+  };
+
+  const handleAddMovementLine = () => {
+    if (!selectedProduct) {
+      setError("Selecciona un producto para agregarlo al movimiento");
+      return;
+    }
+    const prod = products.find((p) => p.id === selectedProduct);
+    if (!prod) return;
+
+    const qty = Number(addQuantity) > 0 ? Number(addQuantity) : 1;
+
+    const isExitOp =
+      movementType === "TRASLADO_INTERNO" ||
+      movementType === "TRANSFERENCIA" ||
+      movementType === "SALIDA_VENTA" ||
+      movementType === "SALIDA_MERMA";
+
+    if (isExitOp && movementOriginWarehouse) {
+      const available = getStockInWarehouse(prod.id, movementOriginWarehouse);
+      const alreadyInList = movementLines
+        .filter((l) => l.productoId === prod.id)
+        .reduce((sum, l) => sum + l.cantidad, 0);
+
+      if (alreadyInList + qty > available) {
+        setError(
+          `Stock insuficiente para "${prod.nombre}" en el almacén de origen. Disponible: ${available} uds (ya en lista: ${alreadyInList} uds).`,
+        );
+        return;
+      }
+    }
+
+    setError("");
+    setMovementLines((prev) => [
+      ...prev,
+      {
+        productoId: prod.id,
+        producto: prod,
+        cantidad: qty,
+        costoUnitario: addCost ? Number(addCost) : Number(prod.costoPromedio || 0),
+        numeroLote: addLote.trim() || undefined,
+        fechaVencimiento: addFechaVenc || undefined,
+      },
+    ]);
+
+    setAddQuantity(1);
+    setAddCost("");
+    setAddLote("");
+    setAddFechaVenc("");
+  };
+
+  const handleRemoveMovementLine = (index: number) => {
+    setMovementLines((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   useEffect(() => {
     async function loadMetadata() {
       try {
-        const [categoriesResult, unitsResult, productsResult, warehousesResult, branchesResult, suppliersResult, paymentMethodsResult] =
-          await Promise.allSettled([
-            catalogApi.getCategorias(),
-            catalogApi.getUnidadesMedida(),
-            catalogApi.getProductos(),
-            organizationApi.getAlmacenes(),
-            organizationApi.getSucursales(),
-            suppliersApi.getProveedores(),
-            salesApi.getMetodosPago(),
-          ]);
+        const [
+          categoriesResult,
+          unitsResult,
+          productsResult,
+          warehousesResult,
+          branchesResult,
+          suppliersResult,
+          paymentMethodsResult,
+          stockResult,
+        ] = await Promise.allSettled([
+          catalogApi.getCategorias(),
+          catalogApi.getUnidadesMedida(),
+          catalogApi.getProductos(),
+          organizationApi.getAlmacenes(),
+          organizationApi.getSucursales(),
+          suppliersApi.getProveedores(),
+          salesApi.getMetodosPago(),
+          inventoryApi.getStock(),
+        ]);
 
         if (categoriesResult.status === "fulfilled") setCategories(categoriesResult.value);
         if (unitsResult.status === "fulfilled") setUnits(unitsResult.value);
-        if (productsResult.status === "fulfilled") {
-          setProducts(productsResult.value);
-          if (productsResult.value.length > 0) setSelectedProduct(productsResult.value[0].id);
-        }
+        if (stockResult.status === "fulfilled") setStockList(stockResult.value);
+
         if (warehousesResult.status === "fulfilled") {
-          setWarehouses(warehousesResult.value);
-          if (warehousesResult.value.length > 0) setSelectedWarehouse(warehousesResult.value[0].id);
+          const whs = warehousesResult.value;
+          setWarehouses(whs);
+          if (edit && kind === "movement") {
+            const origId = edit.almacenOrigenId || edit.almacenOrigen?.id;
+            const destId = edit.almacenDestinoId || edit.almacenDestino?.id;
+            if (origId) setMovementOriginWarehouse(origId);
+            else if (whs.length > 0) setMovementOriginWarehouse(whs[0].id);
+
+            if (destId) setMovementDestWarehouse(destId);
+            else if (whs.length > 1) setMovementDestWarehouse(whs[1].id);
+            else if (whs.length > 0) setMovementDestWarehouse(whs[0].id);
+          } else if (whs.length > 0) {
+            setMovementOriginWarehouse(whs[0].id);
+            setMovementDestWarehouse(whs.length > 1 ? whs[1].id : whs[0].id);
+            setSelectedWarehouse(whs[0].id);
+          }
         }
+
+        if (productsResult.status === "fulfilled") {
+          const prods = productsResult.value;
+          setProducts(prods);
+          if (prods.length > 0 && !selectedProduct) {
+            setSelectedProduct(prods[0].id);
+          }
+          if (edit && kind === "movement") {
+            const rawDetails = edit.detalles || edit.detalle_movimiento || [];
+            if (rawDetails.length > 0) {
+              setMovementLines(
+                rawDetails.map((d: any) => ({
+                  productoId: d.productoId || d.producto_id,
+                  producto:
+                    d.producto ||
+                    prods.find((p) => p.id === (d.productoId || d.producto_id)),
+                  cantidad: Number(d.cantidad || 1),
+                  costoUnitario:
+                    d.costoUnitario !== undefined
+                      ? Number(d.costoUnitario)
+                      : d.costo_unitario !== undefined
+                        ? Number(d.costo_unitario)
+                        : undefined,
+                  numeroLote:
+                    d.numeroLote ||
+                    d.codigoLote ||
+                    d.producto_lote?.codigo_lote ||
+                    undefined,
+                  fechaVencimiento:
+                    d.fechaVencimiento ||
+                    (d.producto_lote?.fecha_vencimiento
+                      ? String(d.producto_lote.fecha_vencimiento).split("T")[0]
+                      : undefined),
+                }))
+              );
+            }
+          }
+        }
+
         if (branchesResult.status === "fulfilled") setSucursales(branchesResult.value);
-        if (suppliersResult.status === "fulfilled") setSuppliers(suppliersResult.value);
+        if (suppliersResult.status === "fulfilled") {
+          setSuppliers(suppliersResult.value);
+          if (edit && kind === "movement") {
+            const provId = edit.proveedorId || edit.proveedor_id || edit.proveedor?.id;
+            if (provId) setMovementSupplierId(provId);
+          }
+        }
         if (paymentMethodsResult.status === "fulfilled") {
           setPaymentMethods(paymentMethodsResult.value);
           if (paymentMethodsResult.value.length > 0) setSelectedPaymentMethod(paymentMethodsResult.value[0].id);
@@ -275,8 +426,9 @@ export function RecordForm({
         });
         notify("Usuario del equipo registrado");
       } else if (kind === "movement") {
-        const quantity = getNumber("cantidad");
-        if (quantity <= 0) throw new Error("La cantidad debe ser mayor a 0");
+        if (movementLines.length === 0) {
+          throw new Error("Debes agregar al menos un producto al listado del movimiento");
+        }
 
         const isEntrada = movementType === "ENTRADA_COMPRA";
         const isTransfer =
@@ -297,39 +449,71 @@ export function RecordForm({
                 ? "SALIDA_VENTA"
                 : "ENTRADA_COMPRA";
 
+        let finalOrigenId: string | undefined = undefined;
+        let finalDestinoId: string | undefined = undefined;
+
+        if (normalizedTipo === "ENTRADA_COMPRA") {
+          finalOrigenId = undefined;
+          finalDestinoId = movementDestWarehouse || warehouses[0]?.id;
+          if (!finalDestinoId) throw new Error("Debes seleccionar el almacén de destino");
+        } else if (normalizedTipo === "TRASLADO_INTERNO") {
+          finalOrigenId = movementOriginWarehouse || warehouses[0]?.id;
+          finalDestinoId = movementDestWarehouse;
+          if (!finalOrigenId || !finalDestinoId || finalOrigenId === finalDestinoId) {
+            throw new Error("Debes seleccionar un almacén de origen y un almacén de destino distintos");
+          }
+        } else if (normalizedTipo === "SALIDA_VENTA" || normalizedTipo === "SALIDA_MERMA") {
+          finalOrigenId = movementOriginWarehouse || warehouses[0]?.id;
+          finalDestinoId = undefined;
+          if (!finalOrigenId) throw new Error("Debes seleccionar el almacén de origen del despacho");
+        } else {
+          // Ajuste
+          finalOrigenId = movementOriginWarehouse || undefined;
+          finalDestinoId = movementDestWarehouse || (!finalOrigenId ? warehouses[0]?.id : undefined);
+        }
+
         const currentWarehouse =
-          warehouses.find((w) => w.id === selectedWarehouse) || warehouses[0];
+          warehouses.find((w) => w.id === (finalDestinoId || finalOrigenId)) || warehouses[0];
         const sucursalId = currentWarehouse?.sucursalId || sucursales[0]?.id;
 
-        const createdMovement = await inventoryApi.createMovimiento({
-          tipo: normalizedTipo,
-          sucursalId,
-          motivo: getText("motivo"),
-          almacenOrigenId: isEntrada ? undefined : selectedWarehouse,
-          almacenDestinoId: isTransfer
-            ? getText("almacenDestinoId")
-            : isEntrada
-              ? selectedWarehouse
-              : undefined,
-          detalles: [
-            {
-              productoId: selectedProduct,
-              cantidad: quantity,
-              costoUnitario: getNumber("costoUnitario") || undefined,
-              numeroLote: getText("numeroLote") || undefined,
-              codigoLote: getText("numeroLote") || undefined,
-              fechaVencimiento: getText("fechaVencimiento") || undefined,
-            },
-          ],
-        });
+        const detallesPayload = movementLines.map((line) => ({
+          productoId: line.productoId,
+          cantidad: line.cantidad,
+          costoUnitario: line.costoUnitario,
+          numeroLote: line.numeroLote,
+          codigoLote: line.numeroLote,
+          fechaVencimiento: line.fechaVencimiento,
+        }));
 
-        // Automatically approve and complete if checked
-        if (getText("autoComplete") === "on") {
-          await inventoryApi.aprobarMovimiento(createdMovement.id);
-          await inventoryApi.completarMovimiento(createdMovement.id);
-          notify("Movimiento registrado y aplicado al Kardex");
+        if (edit) {
+          await inventoryApi.updateMovimiento(edit.id, {
+            tipo: normalizedTipo,
+            motivo: `${normalizedTipo} de inventario`,
+            almacenOrigenId: finalOrigenId,
+            almacenDestinoId: finalDestinoId,
+            proveedorId: movementSupplierId || null,
+            detalles: detallesPayload,
+          });
+          notify("Movimiento actualizado y existencias recalculadas con éxito");
         } else {
-          notify("Movimiento guardado como borrador");
+          const createdMovement = await inventoryApi.createMovimiento({
+            tipo: normalizedTipo,
+            sucursalId,
+            motivo: `${normalizedTipo} de inventario`,
+            almacenOrigenId: finalOrigenId,
+            almacenDestinoId: finalDestinoId,
+            proveedorId: movementSupplierId || undefined,
+            detalles: detallesPayload,
+          });
+
+          // Automatically approve and complete if checked
+          if (getText("autoComplete") === "on") {
+            await inventoryApi.aprobarMovimiento(createdMovement.id);
+            await inventoryApi.completarMovimiento(createdMovement.id);
+            notify("Movimiento registrado y aplicado al Kardex");
+          } else {
+            notify("Movimiento guardado como borrador");
+          }
         }
       } else if (kind === "sale") {
         if (cart.length === 0) {
@@ -631,7 +815,7 @@ export function RecordForm({
                 onChange={(e) => setMovementType(e.target.value)}
               >
                 <option value="ENTRADA_COMPRA">
-                  Entrada por Compra (Ingreso de lote)
+                  Entrada por Compra (Ingreso a almacén)
                 </option>
                 <option value="TRASLADO_INTERNO">
                   Traslado Interno entre Almacenes
@@ -648,115 +832,412 @@ export function RecordForm({
               </select>
             </Field>
 
-            <div className="field">
-              <span>Producto</span>
-              <SearchableProductSelect
-                products={products}
-                selectedProductId={selectedProduct}
-                onSelect={(id) => setSelectedProduct(id)}
-              />
-            </div>
+            {/* ALMACÉN ORIGEN (si la operación descuenta existencias) */}
+            {(movementType === "TRASLADO_INTERNO" ||
+              movementType === "TRANSFERENCIA" ||
+              movementType === "SALIDA_VENTA" ||
+              movementType === "SALIDA_MERMA") && (
+              <Field label="Almacén de Origen (Desde donde sale)">
+                <select
+                  value={movementOriginWarehouse}
+                  onChange={(e) => setMovementOriginWarehouse(e.target.value)}
+                  required
+                >
+                  <option value="">Selecciona almacén de origen</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.nombre} ({w.tipo})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
-            <Field
-              label={
-                movementType === "TRASLADO_INTERNO" || movementType === "TRANSFERENCIA"
-                  ? "Almacén de Origen"
-                  : movementType === "ENTRADA_COMPRA"
-                    ? "Almacén de Destino"
-                    : "Almacén"
-              }
-            >
-              <select
-                value={selectedWarehouse}
-                onChange={(e) => setSelectedWarehouse(e.target.value)}
+            {/* ALMACÉN DESTINO (si la operación recibe existencias) */}
+            {(movementType === "ENTRADA_COMPRA" ||
+              movementType === "TRASLADO_INTERNO" ||
+              movementType === "TRANSFERENCIA") && (
+              <Field
+                label={
+                  movementType === "ENTRADA_COMPRA"
+                    ? "Almacén de Destino (Donde ingresa)"
+                    : "Almacén de Destino (Hacia donde va)"
+                }
               >
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.nombre} ({w.tipo})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            {(movementType === "TRASLADO_INTERNO" || movementType === "TRANSFERENCIA") && (
-              <Field label="Almacén de Destino">
-                <select name="almacenDestinoId" required>
-                  <option value="">Selecciona destino</option>
+                <select
+                  value={movementDestWarehouse}
+                  onChange={(e) => setMovementDestWarehouse(e.target.value)}
+                  required
+                >
+                  <option value="">Selecciona almacén de destino</option>
                   {warehouses
-                    .filter((w) => w.id !== selectedWarehouse)
+                    .filter((w) =>
+                      movementType === "TRASLADO_INTERNO"
+                        ? w.id !== movementOriginWarehouse
+                        : true,
+                    )
                     .map((w) => (
                       <option key={w.id} value={w.id}>
-                        {w.nombre}
+                        {w.nombre} ({w.tipo})
                       </option>
                     ))}
                 </select>
               </Field>
             )}
 
-            <Field label="Cantidad">
-              <input
-                name="cantidad"
-                type="number"
-                min="1"
-                step="1"
-                required
-                placeholder="Ej. 50 (Unidades a ingresar o mover)"
-              />
-            </Field>
-
+            {/* PROVEEDOR (Para Entrada por Compra o compras agrupadas) */}
             {movementType === "ENTRADA_COMPRA" && (
-              <>
-                <Field label="Costo Unitario de Compra (S/)">
-                  <input
-                    name="costoUnitario"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    required
-                    defaultValue={selectedProductData?.costoPromedio || undefined}
-                    placeholder="Ej. 3.40 (Costo unitario de adquisición)"
-                  />
-                </Field>
-                <Field label="Número de Lote">
-                  <input
-                    name="numeroLote"
-                    required
-                    placeholder="Ej. LOT-2026-NOV-01"
-                  />
-                </Field>
-                <Field label="Fecha de Vencimiento">
-                  <input
-                    name="fechaVencimiento"
-                    type="date"
-                    required
-                  />
-                </Field>
-              </>
+              <Field label="Proveedor Asignado (Opcional - compra en grupo)">
+                <select
+                  value={movementSupplierId}
+                  onChange={(e) => setMovementSupplierId(e.target.value)}
+                >
+                  <option value="">Sin proveedor asignado (Opcional)</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.razonSocial || s.nombre} {s.ruc ? `(RUC: ${s.ruc})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            {movementType === "AJUSTE_INVENTARIO" && (
+              <Field label="Almacén a Ajustar">
+                <select
+                  value={movementDestWarehouse || movementOriginWarehouse}
+                  onChange={(e) => {
+                    setMovementDestWarehouse(e.target.value);
+                    setMovementOriginWarehouse(e.target.value);
+                  }}
+                  required
+                >
+                  <option value="">Selecciona almacén</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.nombre} ({w.tipo})
+                    </option>
+                  ))}
+                </select>
+              </Field>
             )}
           </div>
 
-          <Field label="Motivo / Referencia">
-            <input
-              name="motivo"
-              required
-              placeholder="Ej. Factura F001-124, merma por rotura, o traslado interno"
-            />
-          </Field>
-
-          <label
+          {/* CAJA PARA AGREGAR PRODUCTOS AL MOVIMIENTO */}
+          <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 12,
-              marginTop: 10,
+              background: "#f8faf7",
+              border: "1px solid #dce4dc",
+              borderRadius: 8,
+              padding: 14,
+              marginTop: 14,
             }}
           >
-            <input type="checkbox" name="autoComplete" defaultChecked />
-            <span>
-              Aprobar y completar inmediatamente (impacta existencias y Kardex)
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 10,
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#24372b" }}>
+                Agregar Productos al Movimiento
+              </span>
+              {Boolean(
+                (movementType === "TRASLADO_INTERNO" ||
+                  movementType === "SALIDA_VENTA" ||
+                  movementType === "SALIDA_MERMA") &&
+                  movementOriginWarehouse &&
+                  selectedProduct,
+              ) && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color:
+                      getStockInWarehouse(selectedProduct, movementOriginWarehouse) > 0
+                        ? "#166534"
+                        : "#dc2626",
+                    background:
+                      getStockInWarehouse(selectedProduct, movementOriginWarehouse) > 0
+                        ? "#dcfce7"
+                        : "#fee2e2",
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                  }}
+                >
+                  Stock en origen:{" "}
+                  {getStockInWarehouse(selectedProduct, movementOriginWarehouse)} uds
+                </span>
+              )}
+            </div>
+
+            <div className="form-grid" style={{ marginBottom: 10 }}>
+              <div className="field">
+                <span>Producto</span>
+                <SearchableProductSelect
+                  products={products}
+                  selectedProductId={selectedProduct}
+                  onSelect={(id) => setSelectedProduct(id)}
+                />
+              </div>
+
+              <Field label="Cantidad">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={addQuantity}
+                  onChange={(e) => setAddQuantity(Number(e.target.value))}
+                  placeholder="Ej. 10"
+                />
+              </Field>
+
+              {movementType === "ENTRADA_COMPRA" && (
+                <>
+                  <Field label="Costo Unitario (S/)">
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={addCost}
+                      onChange={(e) => setAddCost(e.target.value)}
+                      placeholder={
+                        selectedProductData?.costoPromedio
+                          ? `Ej. ${selectedProductData.costoPromedio}`
+                          : "Ej. 3.50"
+                      }
+                    />
+                  </Field>
+                  <Field label="Número de Lote (Opcional)">
+                    <input
+                      value={addLote}
+                      onChange={(e) => setAddLote(e.target.value)}
+                      placeholder="Ej. LOT-2026-NOV"
+                    />
+                  </Field>
+                  <Field label="Fecha de Vencimiento">
+                    <input
+                      type="date"
+                      value={addFechaVenc}
+                      onChange={(e) => setAddFechaVenc(e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleAddMovementLine}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 14px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={15} /> Añadir producto al listado
+            </button>
+          </div>
+
+          {/* TABLA DE PRODUCTOS EN EL MOVIMIENTO */}
+          <div style={{ marginTop: 14 }}>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#34493b",
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Líneas del Movimiento ({movementLines.length}{" "}
+              {movementLines.length === 1 ? "producto" : "productos"})
             </span>
-          </label>
+
+            {movementLines.length === 0 ? (
+              <div
+                style={{
+                  border: "1px dashed #c8d4c9",
+                  borderRadius: 8,
+                  padding: "16px",
+                  textAlign: "center",
+                  color: "#6b7c70",
+                  fontSize: 12,
+                  background: "#fafbfa",
+                }}
+              >
+                No hay productos añadidos a este movimiento todavía. Selecciona un producto
+                arriba y presiona <strong>"Añadir producto al listado"</strong>.
+              </div>
+            ) : (
+              <div
+                style={{
+                  overflowX: "auto",
+                  border: "1px solid #dce4dc",
+                  borderRadius: 8,
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                  }}
+                >
+                  <thead
+                    style={{
+                      background: "#f2f5f2",
+                      color: "#475c4d",
+                      textAlign: "left",
+                    }}
+                  >
+                    <tr>
+                      <th style={{ padding: "8px 10px" }}>SKU</th>
+                      <th style={{ padding: "8px 10px" }}>Producto</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>
+                        Cantidad
+                      </th>
+                      {movementType === "ENTRADA_COMPRA" && (
+                        <>
+                          <th style={{ padding: "8px 10px", textAlign: "right" }}>
+                            Costo Unit.
+                          </th>
+                          <th style={{ padding: "8px 10px" }}>Lote</th>
+                        </>
+                      )}
+                      <th
+                        style={{
+                          padding: "8px 10px",
+                          textAlign: "center",
+                          width: 50,
+                        }}
+                      >
+                        Acción
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movementLines.map((line, idx) => (
+                      <tr key={idx} style={{ borderTop: "1px solid #eef2ef" }}>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            color: "#166534",
+                          }}
+                        >
+                          {line.producto?.sku || line.productoId.slice(0, 8)}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {line.producto?.nombre || "Producto"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {line.cantidad} uds
+                        </td>
+                        {movementType === "ENTRADA_COMPRA" && (
+                          <>
+                            <td
+                              style={{
+                                padding: "8px 10px",
+                                textAlign: "right",
+                              }}
+                            >
+                              {line.costoUnitario !== undefined
+                                ? `S/ ${line.costoUnitario.toFixed(2)}`
+                                : "—"}
+                            </td>
+                            <td style={{ padding: "8px 10px" }}>
+                              {line.numeroLote ? (
+                                <span>
+                                  <strong>{line.numeroLote}</strong>
+                                  {line.fechaVencimiento
+                                    ? ` (vence: ${line.fechaVencimiento})`
+                                    : ""}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </>
+                        )}
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            style={{
+                              color: "#dc2626",
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => handleRemoveMovementLine(idx)}
+                            title="Quitar producto del movimiento"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot
+                    style={{
+                      background: "#f8faf7",
+                      borderTop: "1px solid #dce4dc",
+                    }}
+                  >
+                    <tr>
+                      <td colSpan={2} style={{ padding: "8px 10px", fontWeight: 700 }}>
+                        Total de Unidades a Mover:
+                      </td>
+                      <td
+                        style={{
+                          padding: "8px 10px",
+                          textAlign: "right",
+                          fontWeight: 700,
+                          color: "#166534",
+                        }}
+                      >
+                        {movementLines.reduce((acc, curr) => acc + curr.cantidad, 0)}{" "}
+                        uds
+                      </td>
+                      <td colSpan={movementType === "ENTRADA_COMPRA" ? 3 : 1}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {!edit && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                marginTop: 10,
+              }}
+            >
+              <input type="checkbox" name="autoComplete" defaultChecked />
+              <span>
+                Aprobar y completar inmediatamente (impacta existencias y Kardex)
+              </span>
+            </label>
+          )}
         </>
       )}
 
@@ -1128,9 +1609,11 @@ export function RecordForm({
             ? "Procesando..."
             : kind === "sale"
               ? `Emitir Comprobante (S/ ${cartTotal.toFixed(2)})`
-              : edit
-                ? "Guardar Cambios"
-                : "Confirmar y Guardar"}
+              : kind === "movement" && edit
+                ? "Guardar y Recalcular Movimiento"
+                : edit
+                  ? "Guardar Cambios"
+                  : "Confirmar y Guardar"}
         </button>
       </div>
     </form>

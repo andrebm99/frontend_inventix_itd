@@ -138,6 +138,8 @@ export interface MovimientoDetalle {
   cantidad: number;
   costoUnitario: number;
   producto?: { id: string; nombre: string; sku: string };
+  lote?: { id: string; codigoLote: string; fechaVencimiento?: string };
+  producto_lote?: { id: string; codigo_lote: string; fecha_vencimiento?: string };
 }
 
 export interface Movimiento {
@@ -150,8 +152,11 @@ export interface Movimiento {
   almacenDestinoId?: string;
   almacenOrigen?: { id: string; nombre: string };
   almacenDestino?: { id: string; nombre: string };
+  proveedorId?: string;
+  proveedor?: { id: string; razonSocial?: string; razon_social?: string; ruc?: string; nombre?: string };
   usuario?: { id: string; nombre: string };
   detalles: MovimientoDetalle[];
+  detalle_movimiento?: any[];
 }
 
 export interface MetodoPago {

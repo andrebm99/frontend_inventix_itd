@@ -83,7 +83,7 @@ function MainApp() {
     window.scrollTo({ top: 0 });
   }
 
-  function openForm(kind: FormKind, edit?: Producto, initialType?: string) {
+  function openForm(kind: FormKind, edit?: any, initialType?: string) {
     setForm({ kind, edit, initialType });
   }
 
@@ -149,7 +149,9 @@ function MainApp() {
           size={form.kind === "sale" ? "wide" : "normal"}
           title={
             form.edit
-              ? "Editar Producto"
+              ? form.kind === "movement"
+                ? "Editar y Recalcular Movimiento"
+                : "Editar Producto"
               : {
                   product: "Nuevo Producto",
                   supplier: "Nuevo Proveedor",

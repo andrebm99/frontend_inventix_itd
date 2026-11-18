@@ -20,6 +20,7 @@ import {
   Eye,
   Ban,
   AlertTriangle,
+  MoreVertical,
 } from 'lucide-react';
 import type { Page } from '../types';
 import type { FormKind } from '../components/RecordForm';
@@ -73,7 +74,7 @@ export function Workspace({
   refreshTrigger,
 }: {
   page: Page;
-  openForm: (kind: FormKind, edit?: Producto) => void;
+  openForm: (kind: FormKind, edit?: any) => void;
   notify: (s: string) => void;
   refreshTrigger: number;
 }) {
@@ -107,6 +108,28 @@ export function Workspace({
   const [ticketFormat, setTicketFormat] = useState<'thermal' | 'standard'>('thermal');
   const [cancelMotivo, setCancelMotivo] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Modals for Movement Actions
+  const [selectedViewMovement, setSelectedViewMovement] = useState<Movimiento | null>(null);
+  const [cancelMovementTarget, setCancelMovementTarget] = useState<Movimiento | null>(null);
+  const [cancelMovementReason, setCancelMovementReason] = useState<string>('');
+  const [cancelMovementLoading, setCancelMovementLoading] = useState<boolean>(false);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+
+  // Close action menu on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.action-menu-container')) {
+        setOpenActionMenuId(null);
+      }
+    };
+    if (openActionMenuId) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [openActionMenuId]);
 
   // Load active tab data
   const loadData = useCallback(async () => {
@@ -191,31 +214,72 @@ export function Workspace({
 
   const matches = (text: string) => text.toLowerCase().includes(search.toLowerCase());
 
-  // Stock calculator per product
+  // Stock calculator per product: returns exact stock from backend or computed from stockList
   const getProductStock = (prodId: string) => {
+    const prod = products.find((p) => p.id === prodId);
+    if (prod && prod.stockTotal !== undefined && prod.stockTotal !== null) {
+      return Number(prod.stockTotal);
+    }
     return stockList
-      .filter((s) => s.productoId === prodId)
-      .reduce((acc, curr) => acc + Number(curr.cantidad), 0);
+      .filter((s) => s.productoId === prodId || (s as any).producto_id === prodId)
+      .reduce((acc, curr) => acc + Number(curr.cantidad ?? (curr as any).cantidad_actual ?? 0), 0);
+  };
+
+  // Stock calculator per product filtered by specific warehouse
+  const getProductStockInWarehouse = (prodId: string, whIdOrName: string) => {
+    if (!whIdOrName || whIdOrName === 'Todos') {
+      return getProductStock(prodId);
+    }
+    const wh = warehouses.find((w) => w.id === whIdOrName || w.nombre === whIdOrName);
+    const targetWhId = wh?.id || whIdOrName;
+
+    return stockList
+      .filter(
+        (s) =>
+          ((s.almacenId === targetWhId || (s as any).almacen_id === targetWhId) ||
+            s.almacen?.nombre === whIdOrName) &&
+          (s.productoId === prodId || (s as any).producto_id === prodId),
+      )
+      .reduce((acc, curr) => acc + Number(curr.cantidad ?? (curr as any).cantidad_actual ?? 0), 0);
   };
 
   // Movement actions
   const handleApproveMovement = async (id: string) => {
     try {
       await inventoryApi.aprobarMovimiento(id);
-      notify('Movimiento aprobado');
+      notify('Movimiento aprobado con éxito');
       loadData();
     } catch (err: any) {
-      notify(err.message || 'Error al aprobar');
+      notify(err.message || 'Error al aprobar movimiento');
     }
   };
 
   const handleCompleteMovement = async (id: string) => {
     try {
       await inventoryApi.completarMovimiento(id);
-      notify('Movimiento completado. Stock actualizado.');
+      notify('Movimiento completado. Existencias de inventario actualizadas.');
       loadData();
     } catch (err: any) {
-      notify(err.message || 'Error al completar');
+      notify(err.message || 'Error al completar movimiento');
+    }
+  };
+
+  const handleConfirmCancelMovement = async () => {
+    if (!cancelMovementTarget) return;
+    setCancelMovementLoading(true);
+    try {
+      await inventoryApi.anularMovimiento(
+        cancelMovementTarget.id,
+        cancelMovementReason.trim() || undefined,
+      );
+      notify('Movimiento anulado y existencias actualizadas con éxito');
+      setCancelMovementTarget(null);
+      setCancelMovementReason('');
+      await loadData();
+    } catch (err: any) {
+      notify(`Error al anular movimiento: ${err.message || 'Error del servidor'}`);
+    } finally {
+      setCancelMovementLoading(false);
     }
   };
 
@@ -236,11 +300,27 @@ export function Workspace({
 
   // Export functions
   const exportProducts = () => {
+    const isFiltered = warehouseFilter !== 'Todos';
+    const whObj = warehouses.find((w) => w.nombre === warehouseFilter || w.id === warehouseFilter);
+    const stockHeader = isFiltered ? `Stock (${whObj?.nombre || 'Almacén'})` : 'Stock Total';
+
     downloadCSV('inventix-productos', [
-      ['SKU', 'Producto', 'Categoría', 'Stock Total', 'Costo Promedio', 'Precio Venta', 'Valorizado Costo'],
+      ['SKU', 'Producto', 'Categoría', stockHeader, 'Stock General', 'Costo Promedio', 'Precio Venta', 'Valorizado Costo'],
       ...products.map((product) => {
-        const currentStock = getProductStock(product.id);
-        return [product.sku, product.nombre, product.categoria?.nombre || 'General', currentStock, product.costoPromedio, product.precioVenta, currentStock * product.costoPromedio];
+        const currentStock = isFiltered
+          ? getProductStockInWarehouse(product.id, warehouseFilter)
+          : getProductStock(product.id);
+        const generalStock = getProductStock(product.id);
+        return [
+          product.sku,
+          product.nombre,
+          product.categoria?.nombre || 'General',
+          currentStock,
+          generalStock,
+          product.costoPromedio,
+          product.precioVenta,
+          currentStock * product.costoPromedio,
+        ];
       }),
     ]);
     notify('Reporte de productos descargado en CSV');
@@ -248,8 +328,24 @@ export function Workspace({
 
   const exportMovements = () => {
     downloadCSV('inventix-kardex-movimientos', [
-      ['Fecha', 'Tipo', 'Estado', 'Motivo', 'Almacén'],
-      ...movements.map((m) => [m.fecha, m.tipo, m.estado, m.motivo || '', m.almacenDestino?.nombre || m.almacenOrigen?.nombre || '']),
+      ['Fecha', 'Tipo', 'Código Producto', 'Producto', 'Estado', 'Almacén'],
+      ...movements.map((m) => {
+        const lineas = m.detalles && m.detalles.length > 0 ? m.detalles : (m.detalle_movimiento || []);
+        const firstLine = lineas[0];
+        const matchedProd =
+          firstLine?.producto ||
+          products.find((p) => p.id === (firstLine?.productoId || (firstLine as any)?.producto_id));
+        const prodSku = matchedProd?.sku || matchedProd?.codigo_barras || '—';
+        const prodNombre = matchedProd?.nombre || '—';
+        return [
+          m.fecha,
+          m.tipo,
+          prodSku,
+          prodNombre,
+          m.estado,
+          m.almacenDestino?.nombre || m.almacenOrigen?.nombre || '',
+        ];
+      }),
     ]);
     notify('Reporte de movimientos descargado');
   };
@@ -377,16 +473,18 @@ export function Workspace({
             </select>
           )}
 
-          {['Movimientos', 'Lotes y vencimientos'].includes(page) && (
+          {['Productos', 'Movimientos', 'Lotes y vencimientos'].includes(page) && (
             <select
               aria-label="Filtrar almacén"
               value={warehouseFilter}
               onChange={(e) => setWarehouseFilter(e.target.value)}
             >
-              <option value="Todos">Todos los almacenes</option>
+              <option value="Todos">
+                {page === 'Productos' ? 'Todos los almacenes (Stock general)' : 'Todos los almacenes'}
+              </option>
               {warehouses.map((w) => (
                 <option key={w.id} value={w.nombre}>
-                  {w.nombre}
+                  {w.nombre} ({w.tipo})
                 </option>
               ))}
             </select>
@@ -399,7 +497,19 @@ export function Workspace({
       {/* 1. PRODUCTOS */}
       {page === 'Productos' && (
         <section className="panel">
-          <Table headers={['Producto / SKU', 'Categoría', 'Stock Total', 'Costo Promedio', 'Precio Venta', 'Estado', 'Acción']}>
+          <Table
+            headers={[
+              'Producto / SKU',
+              'Categoría',
+              warehouseFilter === 'Todos'
+                ? 'Stock Total'
+                : `Stock en ${warehouses.find((w) => w.nombre === warehouseFilter || w.id === warehouseFilter)?.nombre || 'Almacén'}`,
+              'Costo Promedio',
+              'Precio Venta',
+              'Estado',
+              'Acción',
+            ]}
+          >
             {products
               .filter(
                 (p) =>
@@ -407,9 +517,14 @@ export function Workspace({
                   (filter === 'Todos' || p.categoria?.nombre === filter),
               )
               .map((p) => {
-                const stockQty = getProductStock(p.id);
+                const totalStock = getProductStock(p.id);
+                const isFilteredByWh = warehouseFilter !== 'Todos';
+                const stockQty = isFilteredByWh
+                  ? getProductStockInWarehouse(p.id, warehouseFilter)
+                  : totalStock;
                 const isOut = stockQty === 0;
                 const isLow = stockQty <= p.stockMinimo;
+
                 return (
                   <tr key={p.id}>
                     <td>
@@ -427,8 +542,19 @@ export function Workspace({
                     </td>
                     <td>{p.categoria?.nombre || 'General'}</td>
                     <td>
-                      <strong>{stockQty}</strong>{' '}
-                      <small className="inline">{p.unidadMedida?.simbolo || 'UND'}</small>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div>
+                          <strong style={{ fontSize: '1.05rem', color: isOut ? '#b91c1c' : '#1e3a29' }}>
+                            {stockQty}
+                          </strong>{' '}
+                          <small className="inline">{p.unidadMedida?.simbolo || 'UND'}</small>
+                        </div>
+                        {isFilteredByWh && (
+                          <small style={{ fontSize: 10, color: '#687b6e', marginTop: 2 }}>
+                            Total general: {totalStock} {p.unidadMedida?.simbolo || 'UND'}
+                          </small>
+                        )}
+                      </div>
                     </td>
                     <td>{money(p.costoPromedio)}</td>
                     <td>{money(p.precioVenta)}</td>
@@ -454,40 +580,106 @@ export function Workspace({
           {!products.length && !loading && <Empty text="No se encontraron productos registrados" />}
           <div className="table-footer">
             {products.length} productos registrados · Trazabilidad y costos en tiempo real
+            {warehouseFilter !== 'Todos' && (
+              <span style={{ marginLeft: 8, fontWeight: 600, color: '#166534' }}>
+                · Filtrando existencias de:{' '}
+                {warehouses.find((w) => w.nombre === warehouseFilter || w.id === warehouseFilter)?.nombre}
+              </span>
+            )}
           </div>
         </section>
       )}
 
       {/* 2. MOVIMIENTOS */}
       {page === 'Movimientos' && (
-        <section className="panel">
-          <Table headers={['Fecha', 'Operación / Motivo', 'Tipo', 'Almacén', 'Estado', 'Acción']}>
+        <section className="panel" style={{ minHeight: 380 }}>
+          <Table headers={['Fecha', 'Tipo de Movimiento', 'Código / Producto', 'Almacén', 'Estado', 'Acción']}>
             {movements
-              .filter(
-                (m) =>
-                  matches((m.motivo || '') + ' ' + m.tipo) &&
+              .filter((m) => {
+                const lineas = m.detalles && m.detalles.length > 0 ? m.detalles : (m.detalle_movimiento || []);
+                const prodCodes = lineas
+                  .map((d: any) => `${d.producto?.sku || ''} ${d.producto?.nombre || ''} ${d.producto?.codigo_barras || ''}`)
+                  .join(' ');
+                return (
+                  matches(`${m.tipo} ${prodCodes}`) &&
                   (filter === 'Todos' || m.tipo === filter) &&
                   (warehouseFilter === 'Todos' ||
                     m.almacenDestino?.nombre === warehouseFilter ||
-                    m.almacenOrigen?.nombre === warehouseFilter),
-              )
+                    m.almacenOrigen?.nombre === warehouseFilter)
+                );
+              })
               .map((m) => {
                 const isEntrada = m.tipo.startsWith('ENTRADA') || m.tipo.includes('POSITIVO');
+                const lineas = m.detalles && m.detalles.length > 0 ? m.detalles : (m.detalle_movimiento || []);
+                const firstLine = lineas[0];
+                const matchedProd =
+                  firstLine?.producto ||
+                  products.find((p) => p.id === (firstLine?.productoId || (firstLine as any)?.producto_id));
+                const prodSku =
+                  matchedProd?.sku ||
+                  matchedProd?.codigo_barras ||
+                  (firstLine as any)?.producto_lote?.codigo_lote ||
+                  '—';
+                const prodNombre = matchedProd?.nombre || 'Producto asignado';
+                const extraCount = lineas.length > 1 ? lineas.length - 1 : 0;
+
                 return (
                   <tr key={m.id}>
                     <td>{date(m.fecha)}</td>
                     <td>
-                      <strong>{m.motivo || 'Operación de almacén'}</strong>
-                      <small>Usuario: {m.usuario?.nombre || 'Sistema'}</small>
-                    </td>
-                    <td>
                       <Badge tone={isEntrada ? 'green' : 'gray'}>
                         {m.tipo}
                       </Badge>
+                      <div style={{ fontSize: 11, color: '#7a8d80', marginTop: 3 }}>
+                        Por: {m.usuario?.nombre || 'Sistema'}
+                      </div>
                     </td>
                     <td>
-                      {m.almacenOrigen?.nombre && `${m.almacenOrigen.nombre} → `}
-                      {m.almacenDestino?.nombre || 'Almacén Principal'}
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              fontSize: 12,
+                              color: '#166534',
+                              background: '#eef8f2',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              border: '1px solid #c7e6d3',
+                            }}
+                          >
+                            {prodSku}
+                          </span>
+                          {extraCount > 0 && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: '#556b5b',
+                                background: '#e8ece9',
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                              }}
+                            >
+                              +{extraCount} más
+                            </span>
+                          )}
+                        </div>
+                        <small style={{ marginTop: 2, color: '#3b4e41', fontWeight: 500 }}>
+                          {prodNombre} {firstLine?.cantidad ? `(${firstLine.cantidad} uds)` : ''}
+                        </small>
+                      </div>
+                    </td>
+                    <td>
+                      <div>
+                        {m.almacenOrigen?.nombre && `${m.almacenOrigen.nombre} → `}
+                        {m.almacenDestino?.nombre || 'Almacén Principal'}
+                      </div>
+                      {m.proveedor && (
+                        <div style={{ fontSize: 11, color: '#274b33', marginTop: 2 }}>
+                          📦 Prov: {m.proveedor.razonSocial || m.proveedor.razon_social || m.proveedor.nombre}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <Badge
@@ -504,30 +696,207 @@ export function Workspace({
                         {m.estado}
                       </Badge>
                     </td>
-                    <td>
-                      {m.estado === 'BORRADOR' && (
+                    <td style={{ position: 'relative' }}>
+                      <div className="action-menu-container" style={{ position: 'relative', display: 'inline-block' }}>
                         <button
-                          className="secondary"
-                          style={{ fontSize: 11, padding: '4px 8px' }}
-                          onClick={() => handleApproveMovement(m.id)}
+                          type="button"
+                          className="icon-button"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 30,
+                            height: 30,
+                            borderRadius: 6,
+                            border: '1px solid #d0dad1',
+                            background: openActionMenuId === m.id ? '#eef3ef' : '#fff',
+                            color: '#24372b',
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(openActionMenuId === m.id ? null : m.id);
+                          }}
+                          title="Acciones del movimiento"
+                          aria-label="Acciones del movimiento"
                         >
-                          Aprobar
+                          <MoreVertical size={16} />
                         </button>
-                      )}
-                      {m.estado === 'APROBADO' && (
-                        <button
-                          className="primary"
-                          style={{ fontSize: 11, padding: '4px 8px' }}
-                          onClick={() => handleCompleteMovement(m.id)}
-                        >
-                          Completar
-                        </button>
-                      )}
-                      {m.estado === 'COMPLETADO' && (
-                        <span style={{ color: '#28634f', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <CheckCircle2 size={13} /> Aplicado
-                        </span>
-                      )}
+
+                        {openActionMenuId === m.id && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              right: 0,
+                              top: 'calc(100% + 4px)',
+                              zIndex: 100,
+                              minWidth: 180,
+                              background: '#ffffff',
+                              borderRadius: 8,
+                              border: '1px solid #dce4dc',
+                              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                              padding: 5,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                width: '100%',
+                                padding: '7px 10px',
+                                fontSize: 12,
+                                fontWeight: 500,
+                                borderRadius: 6,
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#24372b',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4f1')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                              onClick={() => {
+                                setOpenActionMenuId(null);
+                                setSelectedViewMovement(m);
+                              }}
+                            >
+                              <Eye size={14} style={{ color: '#28634f' }} />
+                              Ver Detalle
+                            </button>
+
+                            {m.estado !== 'ANULADO' && (
+                              <button
+                                type="button"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#24372b',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4f1')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                onClick={() => {
+                                  setOpenActionMenuId(null);
+                                  openForm('movement', m);
+                                }}
+                              >
+                                <Pencil size={14} style={{ color: '#24372b' }} />
+                                Editar y Recalcular
+                              </button>
+                            )}
+
+                            {m.estado === 'BORRADOR' && (
+                              <button
+                                type="button"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#b45309',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#fef3c7')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                onClick={() => {
+                                  setOpenActionMenuId(null);
+                                  handleApproveMovement(m.id);
+                                }}
+                              >
+                                <CheckCircle2 size={14} style={{ color: '#b45309' }} />
+                                Aprobar Movimiento
+                              </button>
+                            )}
+
+                            {m.estado === 'APROBADO' && (
+                              <button
+                                type="button"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#15803d',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#dcfce7')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                onClick={() => {
+                                  setOpenActionMenuId(null);
+                                  handleCompleteMovement(m.id);
+                                }}
+                              >
+                                <CheckCircle2 size={14} style={{ color: '#15803d' }} />
+                                Completar Movimiento
+                              </button>
+                            )}
+
+                            {m.estado !== 'ANULADO' && (
+                              <>
+                                <div style={{ height: 1, background: '#eef2ef', margin: '3px 0' }} />
+                                <button
+                                  type="button"
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    width: '100%',
+                                    padding: '7px 10px',
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: '#dc2626',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                  }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.background = '#fee2e2')}
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                  onClick={() => {
+                                    setOpenActionMenuId(null);
+                                    setCancelMovementTarget(m);
+                                    setCancelMovementReason('');
+                                  }}
+                                >
+                                  <Ban size={14} style={{ color: '#dc2626' }} />
+                                  Anular Movimiento
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1380,6 +1749,352 @@ export function Workspace({
                 }}
               >
                 {cancelLoading ? 'Anulando...' : 'Confirmar Anulación'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL VER DETALLE DE MOVIMIENTO */}
+      {selectedViewMovement && (
+        <Modal
+          size="wide"
+          title={`Detalle de Movimiento: ${selectedViewMovement.tipo}`}
+          onClose={() => setSelectedViewMovement(null)}
+        >
+          <div style={{ padding: '6px 12px' }}>
+            {/* Header info */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 12,
+                background: '#f8faf7',
+                border: '1px solid #dce4dc',
+                borderRadius: 8,
+                padding: 14,
+                marginBottom: 16,
+                fontSize: 12,
+              }}
+            >
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 4 }}>Estado del Movimiento:</span>
+                <Badge
+                  tone={
+                    selectedViewMovement.estado === 'COMPLETADO'
+                      ? 'green'
+                      : selectedViewMovement.estado === 'APROBADO'
+                        ? 'amber'
+                        : selectedViewMovement.estado === 'ANULADO'
+                          ? 'red'
+                          : 'gray'
+                  }
+                >
+                  {selectedViewMovement.estado}
+                </Badge>
+              </div>
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Fecha y Hora:</span>
+                <strong>{new Date(selectedViewMovement.fecha).toLocaleString()}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Almacén Origen:</span>
+                <strong>{selectedViewMovement.almacenOrigen?.nombre || '—'}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Almacén Destino:</span>
+                <strong>{selectedViewMovement.almacenDestino?.nombre || '—'}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Usuario Responsable:</span>
+                <strong>{selectedViewMovement.usuario?.nombre || 'Sistema'}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Motivo / Referencia:</span>
+                <strong>{selectedViewMovement.motivo || 'Sin motivo especificado'}</strong>
+              </div>
+              {selectedViewMovement.proveedor && (
+                <div>
+                  <span style={{ color: '#687b6e', display: 'block', marginBottom: 2 }}>Proveedor Asignado:</span>
+                  <strong>
+                    {selectedViewMovement.proveedor.razonSocial ||
+                      selectedViewMovement.proveedor.razon_social ||
+                      selectedViewMovement.proveedor.nombre ||
+                      '—'}
+                    {selectedViewMovement.proveedor.ruc ? ` (RUC: ${selectedViewMovement.proveedor.ruc})` : ''}
+                  </strong>
+                </div>
+              )}
+            </div>
+
+            {/* Line items table */}
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: '#24372b', marginBottom: 8 }}>
+                Líneas de Productos del Movimiento
+              </h3>
+              <div style={{ overflowX: 'auto', border: '1px solid #e1e8e2', borderRadius: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead style={{ background: '#f3f6f3', textAlign: 'left', color: '#4d6253' }}>
+                    <tr>
+                      <th style={{ padding: '8px 12px' }}>Producto / SKU</th>
+                      <th style={{ padding: '8px 12px' }}>Lote / Vencimiento</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Cantidad</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Costo Unitario</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(
+                      selectedViewMovement.detalles?.length > 0
+                        ? selectedViewMovement.detalles
+                        : (selectedViewMovement.detalle_movimiento || []).map((d: any) => ({
+                            id: d.id,
+                            productoId: d.producto_id,
+                            cantidad: d.cantidad,
+                            costoUnitario: Number(d.costo_unitario || 0),
+                            producto: d.producto,
+                            lote: d.producto_lote
+                              ? {
+                                  id: d.producto_lote.id,
+                                  codigoLote: d.producto_lote.codigo_lote,
+                                  fechaVencimiento: d.producto_lote.fecha_vencimiento,
+                                }
+                              : undefined,
+                          }))
+                    ).map((line, idx) => {
+                      const prodName =
+                        line.producto?.nombre ||
+                        products.find((p) => p.id === line.productoId)?.nombre ||
+                        'Producto';
+                      const prodSku =
+                        line.producto?.sku ||
+                        products.find((p) => p.id === line.productoId)?.sku ||
+                        line.productoId;
+                      const loteCode =
+                        line.lote?.codigoLote ||
+                        (line as any).producto_lote?.codigo_lote ||
+                        '—';
+                      const rawVenc =
+                        line.lote?.fechaVencimiento ||
+                        (line as any).producto_lote?.fecha_vencimiento;
+                      const vencDate = rawVenc ? new Date(rawVenc).toLocaleDateString() : '—';
+                      const subtotal = Number(line.cantidad) * Number(line.costoUnitario || 0);
+
+                      return (
+                        <tr key={line.id || idx} style={{ borderTop: '1px solid #eef2ef' }}>
+                          <td style={{ padding: '8px 12px' }}>
+                            <strong>{prodName}</strong>
+                            <div style={{ fontSize: 11, color: '#7a8d80' }}>SKU: {prodSku}</div>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <div><strong>{loteCode}</strong></div>
+                            <div style={{ fontSize: 11, color: '#7a8d80' }}>Vence: {vencDate}</div>
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>
+                            {line.cantidad}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                            {money(line.costoUnitario || 0)}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>
+                            {money(subtotal)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot style={{ background: '#f8faf7', borderTop: '2px solid #dce4dc' }}>
+                    <tr>
+                      <td colSpan={2} style={{ padding: '8px 12px', fontWeight: 700 }}>
+                        Total Valorizado
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
+                        {(
+                          selectedViewMovement.detalles || selectedViewMovement.detalle_movimiento || []
+                        ).reduce((acc: number, cur: any) => acc + Number(cur.cantidad || 0), 0)}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}></td>
+                      <td
+                        style={{
+                          padding: '8px 12px',
+                          textAlign: 'right',
+                          fontWeight: 700,
+                          color: '#166534',
+                        }}
+                      >
+                        {money(
+                          (
+                            selectedViewMovement.detalles || selectedViewMovement.detalle_movimiento || []
+                          ).reduce(
+                            (acc: number, cur: any) =>
+                              acc +
+                              Number(cur.cantidad || 0) *
+                                Number(cur.costoUnitario || cur.costo_unitario || 0),
+                            0,
+                          ),
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+              {selectedViewMovement.estado !== 'ANULADO' && (
+                <>
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#dc2626' }}
+                    onClick={() => {
+                      const target = selectedViewMovement;
+                      setSelectedViewMovement(null);
+                      setCancelMovementTarget(target);
+                      setCancelMovementReason('');
+                    }}
+                  >
+                    <Ban size={15} /> Anular Movimiento
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    onClick={() => {
+                      const target = selectedViewMovement;
+                      setSelectedViewMovement(null);
+                      openForm('movement', target);
+                    }}
+                  >
+                    <Pencil size={15} /> Editar y Recalcular
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setSelectedViewMovement(null)}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL ANULAR MOVIMIENTO */}
+      {cancelMovementTarget && (
+        <Modal
+          title={`Anular Movimiento: ${cancelMovementTarget.tipo}`}
+          onClose={() => {
+            if (!cancelMovementLoading) {
+              setCancelMovementTarget(null);
+              setCancelMovementReason('');
+            }
+          }}
+        >
+          <div style={{ padding: '4px 10px' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                padding: 14,
+                borderRadius: 8,
+                marginBottom: 16,
+              }}
+            >
+              <AlertTriangle size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
+              <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.5 }}>
+                <strong>¿Confirmar anulación del movimiento?</strong>
+                <p style={{ margin: '4px 0 0' }}>
+                  {cancelMovementTarget.estado === 'COMPLETADO'
+                    ? 'Este movimiento ya fue completado y afectó existencias. Al anularlo, el sistema revertirá físicamente el stock de los productos involucrados en sus almacenes correspondientes.'
+                    : `Este movimiento está en estado ${cancelMovementTarget.estado}. Al anularlo quedará registrado como ANULADO en el kárdex sin alterar existencias.`}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: '#f8faf7',
+                border: '1px solid #dce4dc',
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 16,
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
+                <div>Operación: <strong>{cancelMovementTarget.tipo}</strong></div>
+                <div>Estado Actual: <strong>{cancelMovementTarget.estado}</strong></div>
+                <div>Fecha: <strong>{new Date(cancelMovementTarget.fecha).toLocaleString()}</strong></div>
+                <div>
+                  Almacén:{' '}
+                  <strong>
+                    {cancelMovementTarget.almacenDestino?.nombre ||
+                      cancelMovementTarget.almacenOrigen?.nombre ||
+                      '—'}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#2b3f33' }}>
+                Motivo / Justificación de la Anulación (Opcional)
+              </span>
+              <textarea
+                rows={3}
+                value={cancelMovementReason}
+                onChange={(e) => setCancelMovementReason(e.target.value)}
+                placeholder="Indica el motivo de la anulación (ej. Error en el conteo de unidades ingresadas, devolución de mercadería no autorizada, duplicación)..."
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  borderRadius: 8,
+                  border: '1px solid #d0dad1',
+                  padding: 10,
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            </label>
+
+            <div
+              className="form-actions"
+              style={{
+                marginTop: 20,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+              }}
+            >
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setCancelMovementTarget(null);
+                  setCancelMovementReason('');
+                }}
+                disabled={cancelMovementLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handleConfirmCancelMovement}
+                disabled={cancelMovementLoading}
+                style={{
+                  background: '#dc2626',
+                  borderColor: '#b91c1c',
+                }}
+              >
+                {cancelMovementLoading ? 'Anulando...' : 'Confirmar Anulación'}
               </button>
             </div>
           </div>
