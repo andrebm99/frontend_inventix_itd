@@ -69,7 +69,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     });
   } catch (err: any) {
     throw new ApiError(
-      'No se pudo conectar con el servidor backend (localhost:3000). Verifica que el servicio esté ejecutándose.',
+      'No se pudo conectar con el servidor. Inténtalo nuevamente en unos momentos.',
       0,
       err,
     );

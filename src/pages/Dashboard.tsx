@@ -10,14 +10,12 @@ import {
   Plus,
   ArrowLeftRight,
   RefreshCw,
-  Sparkles,
   ShoppingBag,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { money, date } from '../utils/format';
 import { Badge, Table } from '../components/UI';
-import { TrendChart } from '../components/TrendChart';
-import { reportsApi, aiApi } from '../api/services';
+import { reportsApi } from '../api/services';
 import type { DashboardReporte } from '../api/types';
 
 export function Dashboard({
@@ -25,17 +23,14 @@ export function Dashboard({
   onMovement,
   onProduct,
   onSale,
-  notify,
 }: {
   navigate: (p: Page) => void;
   onMovement: () => void;
   onProduct: () => void;
   onSale: () => void;
-  notify: (s: string) => void;
 }) {
   const [data, setData] = useState<DashboardReporte | null>(null);
   const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -53,24 +48,11 @@ export function Dashboard({
     fetchDashboard();
   }, [fetchDashboard]);
 
-  const handleRunAiAnalysis = async () => {
-    try {
-      setAnalyzing(true);
-      const res = await aiApi.analizar();
-      notify(`IA completó análisis: ${res.generadas} recomendaciones de compra`);
-      navigate('Reabastecimiento');
-    } catch (err: any) {
-      notify(err.message || 'Error al ejecutar asistente IA');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const val = data?.resumen.valor_total_inventario ?? 0;
-  const units = data?.resumen.unidades_disponibles ?? 0;
-  const lowStock = data?.resumen.productos_bajo_stock ?? 0;
-  const expiringLots = data?.resumen.lotes_por_vencer ?? 0;
-  const salesMonth = data?.resumen.ventas_mes_monto ?? 0;
+  const inventoryValue = data?.resumen?.valor_total_inventario ?? 0;
+  const availableUnits = data?.resumen?.unidades_disponibles ?? 0;
+  const lowStock = data?.resumen?.productos_bajo_stock ?? 0;
+  const expiringLots = data?.resumen?.lotes_por_vencer ?? 0;
+  const salesMonth = data?.resumen?.ventas_mes_monto ?? 0;
 
   return (
     <>
@@ -80,13 +62,9 @@ export function Dashboard({
           <h1>
             Todo bajo control<span className="heading-dot">.</span>
           </h1>
-          <p>Métricas consolidadas, trazabilidad por lotes FEFO y asistente predictivo.</p>
+          <p>Existencias, ventas, movimientos y lotes registrados en el sistema.</p>
         </div>
         <div className="heading-actions">
-          <button className="secondary" onClick={handleRunAiAnalysis} disabled={analyzing}>
-            <Sparkles size={16} style={{ color: '#b79a60' }} />
-            {analyzing ? 'Analizando con IA...' : 'Asistente IA Reposición'}
-          </button>
           <button className="primary" onClick={onMovement}>
             <Plus size={18} /> Registrar movimiento
           </button>
@@ -127,7 +105,7 @@ export function Dashboard({
             Valor del inventario
             <Wallet size={19} />
           </div>
-          <strong>{money(val)}</strong>
+          <strong>{money(inventoryValue)}</strong>
           <p>Valorizado al costo promedio</p>
         </article>
 
@@ -136,7 +114,7 @@ export function Dashboard({
             Unidades disponibles
             <Package size={19} />
           </div>
-          <strong>{units.toLocaleString('es-PE')}</strong>
+          <strong>{availableUnits.toLocaleString('es-PE')}</strong>
           <p>Stock físico en almacenes</p>
         </article>
 
@@ -166,36 +144,11 @@ export function Dashboard({
         </article>
       </section>
 
-      <div className="dashboard-middle">
-        <section className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>El pulso de tus ventas y demanda</h2>
-              <p>Tendencia real y proyección estimada de inventario</p>
-            </div>
-            <Badge tone="green">En tiempo real</Badge>
-          </div>
-          <div className="chart-summary">
-            <strong>{money(salesMonth > 0 ? salesMonth : 18420)}</strong>
-            <span>
-              <ArrowUpRight size={15} /> Actividad comercial <small>acumulada</small>
-            </span>
-          </div>
-          <TrendChart />
-          <div className="chart-legend">
-            <span>
-              <i className="legend-green" /> Demanda histórica
-            </span>
-            <span>
-              <i className="legend-gold" /> Proyección de reposición
-            </span>
-          </div>
-        </section>
-
+      <div className="dashboard-alerts">
         <section className="attention-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">ANÁLISIS PREDICTIVO</p>
+              <p className="eyebrow">CONTROL DE EXISTENCIAS</p>
               <h2>Necesitan tu atención</h2>
             </div>
             <span className="alert-circle">
@@ -209,7 +162,7 @@ export function Dashboard({
             </span>
             <div>
               <strong>{lowStock} productos en quiebre o stock bajo</strong>
-              <p>El Asistente IA puede sugerir la orden de compra exacta.</p>
+              <p>Revisa el stock mínimo y define la cantidad que debes reponer.</p>
             </div>
             <ChevronRight size={18} />
           </button>
@@ -226,12 +179,12 @@ export function Dashboard({
           </button>
 
           <div className="tip">
-            <span>SUGERENCIA INTELIGENTE</span>
+            <span>RECOMENDACIÓN OPERATIVA</span>
             <p>
-              Los productos clasificados como <strong>Clase A</strong> representan el 80% del valor de tus ventas. Evita quiebres programando compras automáticas.
+              Revisa primero los productos que ya alcanzaron su stock mínimo y registra la compra con el proveedor correspondiente.
             </p>
-            <button onClick={() => navigate('Clasificación ABC')}>
-              Explorar clasificación ABC <ArrowUpRight size={15} />
+            <button onClick={() => navigate('Reabastecimiento')}>
+              Revisar reabastecimiento <ArrowUpRight size={15} />
             </button>
           </div>
         </section>

@@ -9,7 +9,7 @@ export interface UserProfile {
   id: string;
   nombre: string;
   correo: string;
-  activo: boolean;
+  activo?: boolean;
 }
 
 export interface BusinessItem {
@@ -23,6 +23,11 @@ export interface BusinessItem {
 
 export interface AuthResponse {
   accessToken: string;
+  usuario: UserProfile;
+  negocios: BusinessItem[];
+}
+
+export interface AuthProfileResponse {
   usuario: UserProfile;
   negocios: BusinessItem[];
 }
@@ -89,7 +94,7 @@ export interface Lote {
   cantidadInicial: number;
   cantidadDisponible: number;
   costoUnitario: number;
-  estado: 'ACTIVO' | 'CUARENTENA' | 'AGOTADO' | 'VENCIDO';
+  estado: 'DISPONIBLE' | 'POR_VENCER' | 'CUARENTENA' | 'AGOTADO' | 'VENCIDO';
   producto?: { id: string; nombre: string; sku: string };
   almacen?: { id: string; nombre: string };
 }
@@ -175,19 +180,31 @@ export interface Venta {
   detalles: VentaDetalle[];
 }
 
-export interface RecomendacionIa {
+export interface AbcClassification {
   id: string;
-  tipo: 'ORDEN_COMPRA' | 'ALERTA_SOBRESTOCK' | 'PREDICCION_QUIEBRE' | 'REUBICACION_STOCK';
-  estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'MODIFICADA';
-  prioridad: 'CRITICA' | 'ALTA' | 'MEDIA' | 'BAJA';
-  justificacion: string;
-  productoId: string;
-  almacenId: string;
-  cantidadSugerida: number;
-  cantidadAprobada?: number;
-  producto?: { id: string; nombre: string; sku: string; stockMinimo: number; costoPromedio: number };
-  almacen?: { id: string; nombre: string };
-  created_at: string;
+  product: { id: string; name: string; sku?: string };
+  classification: 'A' | 'B' | 'C';
+  consumptionValue: number;
+  participationPercentage: number;
+  periodStart: string;
+  periodEnd: string;
+  calculatedAt?: string;
+}
+
+export interface ReplenishmentPolicy {
+  id: string;
+  product: { id: string; name: string; sku?: string };
+  warehouse: { id: string; name: string };
+  safetyStock: number;
+  reorderPoint: number;
+  maximumStock: number;
+  calculatedAt?: string;
+}
+
+export interface AnalysisResult {
+  updatedClassifications: number;
+  updatedPolicies: number;
+  generatedRecommendations: number;
 }
 
 export interface DashboardReporte {

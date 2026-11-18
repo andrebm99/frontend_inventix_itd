@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Box, ArrowRight, ShieldCheck, Sparkles, Building2, UserPlus, LogIn, AlertCircle } from 'lucide-react';
+import { Box, ArrowRight, ShieldCheck, Building2, UserPlus, LogIn, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
@@ -7,14 +7,14 @@ export function Login() {
   const [tab, setTab] = useState<'login' | 'register'>('login');
 
   // Form states
-  const [email, setEmail] = useState('admin@inventix.com');
-  const [password, setPassword] = useState('Secret123!');
-  const [nombre, setNombre] = useState('Carlos Almacén');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [nombre, setNombre] = useState('');
 
   // New business creation if registered without business
-  const [bizNombre, setBizNombre] = useState('Mi Tienda Retail');
-  const [bizRuc, setBizRuc] = useState('20' + Math.floor(100000000 + Math.random() * 900000000));
-  const [bizTelefono, setBizTelefono] = useState('987654321');
+  const [bizNombre, setBizNombre] = useState('');
+  const [bizRuc, setBizRuc] = useState('');
+  const [bizTelefono, setBizTelefono] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,20 +49,6 @@ export function Login() {
     }
   };
 
-  const quickDemoLogin = async () => {
-    setEmail('admin@inventix.com');
-    setPassword('Secret123!');
-    setError(null);
-    setLoading(true);
-    try {
-      await login('admin@inventix.com', 'Secret123!');
-    } catch (err: any) {
-      setError(err.message || 'Error al conectar con credenciales de prueba');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // If user is authenticated but has no business yet, show business setup wizard
   if (user && (!activeNegocio || negocios.length === 0)) {
     return (
@@ -74,7 +60,7 @@ export function Login() {
           <span className="eyebrow">CONFIGURACIÓN INICIAL</span>
           <h1>Registra tu negocio<span className="heading-dot">.</span></h1>
           <p>
-            Bienvenido, <strong>{user.nombre}</strong>. Para activar el control de inventario con IA, crea la sede principal de tu empresa.
+            Bienvenido, <strong>{user.nombre}</strong>. Para comenzar a controlar tu inventario, registra la sede principal de tu empresa.
           </p>
         </div>
 
@@ -147,12 +133,12 @@ export function Login() {
           Mejores decisiones.
         </h1>
         <p>
-          Tu inventario en tiempo real, trazabilidad FEFO por lotes, ventas y un asistente predictivo con IA. Todo conectado a la API de NestJS.
+          Controla existencias, movimientos, lotes, ventas y reposición desde un solo lugar.
         </p>
 
         <div className="login-art">
           <PackageIllustration />
-          <span>Stock valorizado · Prevención de mermas · Asistente IA</span>
+          <span>Stock valorizado · Prevención de mermas · Control de reposición</span>
         </div>
       </div>
 
@@ -243,22 +229,6 @@ export function Login() {
           </button>
         </form>
 
-        <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid #edf0e6' }}>
-          <button
-            type="button"
-            className="secondary full"
-            onClick={quickDemoLogin}
-            disabled={loading}
-            style={{ fontSize: 12 }}
-          >
-            <Sparkles size={15} style={{ color: '#b79a60' }} />
-            Entrar con Acceso Rápido Demo (Carlos Admin)
-          </button>
-        </div>
-
-        <small style={{ display: 'block', marginTop: 14, textAlign: 'center' }}>
-          API Backend NestJS activa en <code>localhost:3000</code>. Autenticación JWT y RBAC multi-tenant.
-        </small>
       </section>
     </div>
   );

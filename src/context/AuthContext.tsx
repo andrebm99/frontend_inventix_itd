@@ -81,10 +81,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const profile = await authApi.getMe();
-      setUser(profile);
-      localStorage.setItem('inventix_user', JSON.stringify(profile));
-      await refreshNegocios();
+      const { usuario, negocios: userBusinesses } = await authApi.getMe();
+      setUser(usuario);
+      localStorage.setItem('inventix_user', JSON.stringify(usuario));
+      setNegocios(userBusinesses);
+
+      if (userBusinesses.length > 0) {
+        const storedId = getNegocioId();
+        const current = userBusinesses.find((business) => business.id === storedId) || userBusinesses[0];
+        setNegocioId(current.id);
+        setActiveNegocio(current);
+      } else {
+        setNegocioId(null);
+        setActiveNegocio(null);
+      }
     } catch (err: any) {
       console.warn('Session expired or server unavailable:', err);
       clearSession();
@@ -94,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [refreshNegocios]);
+  }, []);
 
   useEffect(() => {
     initAuth();

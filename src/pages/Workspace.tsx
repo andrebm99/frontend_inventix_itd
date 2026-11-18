@@ -9,39 +9,39 @@ import {
   ArrowUpRight,
   Package,
   Printer,
-  Sparkles,
   ShoppingBag,
   CheckCircle2,
-  XCircle,
   FileSpreadsheet,
   Clock,
-  Layers,
+  ShoppingCart,
+  BarChart3,
   TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import type { Page } from '../types';
 import type { FormKind } from '../components/RecordForm';
 import { Badge, Empty, Table } from '../components/UI';
 import { money, date, daysLeft, downloadCSV } from '../utils/format';
-import { TrendChart } from '../components/TrendChart';
 import {
   catalogApi,
   inventoryApi,
   organizationApi,
   salesApi,
   suppliersApi,
-  aiApi,
   reportsApi,
   iamApi,
+  analyticsApi,
 } from '../api/services';
 import type {
   Almacen,
+  AbcClassification,
   Categoria,
   IamUserItem,
   Lote,
   Movimiento,
   Producto,
   Proveedor,
-  RecomendacionIa,
+  ReplenishmentPolicy,
   StockAlmacen,
   Venta,
 } from '../api/types';
@@ -53,9 +53,9 @@ const descriptions: Partial<Record<Page, string>> = {
   'Lotes y vencimientos': 'Trazabilidad FEFO (First-Expired, First-Out) para evitar mermas.',
   Proveedores: 'Convenios comerciales, plazos de entrega y costos preferidos.',
   Ventas: 'Punto de venta y facturación con deducción atómica de existencias.',
-  Pronósticos: 'Demanda estimada y cobertura de días de inventario.',
-  'Clasificación ABC': 'Segmentación de Pareto (80/15/5) para optimizar capital de trabajo.',
-  Reabastecimiento: 'Asistente IA con sugerencias de compra y aprobación Human-in-the-Loop.',
+  Pronósticos: 'Proyección de demanda a partir del historial real de ventas.',
+  'Clasificación ABC': 'Priorización del catálogo según su valor de consumo registrado.',
+  Reabastecimiento: 'Stock de seguridad, punto de reorden y cantidades de reposición.',
   Reportes: 'Kardex formal, valorización de inventario y mermas exportables.',
   Usuarios: 'Control de accesos y roles (RBAC) para el equipo del negocio.',
   Alertas: 'Atención prioritaria de quiebres de stock y lotes próximos a caducar.',
@@ -75,9 +75,9 @@ export function Workspace({
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('Todos');
   const [warehouseFilter, setWarehouseFilter] = useState('Todos');
-  const [horizon, setHorizon] = useState(30);
   const [loading, setLoading] = useState(false);
-  const [analyzingAi, setAnalyzingAi] = useState(false);
+  const [updatingCalculations, setUpdatingCalculations] = useState(false);
+  const [forecastHorizon, setForecastHorizon] = useState(30);
 
   // Live Data States
   const [products, setProducts] = useState<Producto[]>([]);
@@ -88,8 +88,10 @@ export function Workspace({
   const [movements, setMovements] = useState<Movimiento[]>([]);
   const [suppliers, setSuppliers] = useState<Proveedor[]>([]);
   const [sales, setSales] = useState<Venta[]>([]);
-  const [recommendations, setRecommendations] = useState<RecomendacionIa[]>([]);
   const [users, setUsers] = useState<IamUserItem[]>([]);
+  const [abcClassifications, setAbcClassifications] = useState<AbcClassification[]>([]);
+  const [replenishmentPolicies, setReplenishmentPolicies] = useState<ReplenishmentPolicy[]>([]);
+  const [selectedForecastProduct, setSelectedForecastProduct] = useState('');
   const [selectedKardexProd, setSelectedKardexProd] = useState<string>('');
   const [kardexData, setKardexData] = useState<any[]>([]);
 
@@ -97,60 +99,68 @@ export function Workspace({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      if (['Productos', 'Resumen', 'Reabastecimiento', 'Clasificación ABC', 'Pronósticos', 'Alertas', 'Reportes'].includes(page)) {
-        const [prods, cats, stk] = await Promise.all([
+      if (['Productos', 'Resumen', 'Pronósticos', 'Clasificación ABC', 'Reabastecimiento', 'Alertas', 'Reportes'].includes(page)) {
+        const [loadedProducts, loadedCategories, loadedStock] = await Promise.all([
           catalogApi.getProductos().catch(() => []),
           catalogApi.getCategorias().catch(() => []),
           inventoryApi.getStock().catch(() => []),
         ]);
-        setProducts(prods);
-        setCategories(cats);
-        setStockList(stk);
-        if (prods.length > 0 && !selectedKardexProd) {
-          setSelectedKardexProd(prods[0].id);
+        setProducts(loadedProducts);
+        setCategories(loadedCategories);
+        setStockList(loadedStock);
+        if (loadedProducts.length > 0 && !selectedKardexProd) {
+          setSelectedKardexProd(loadedProducts[0].id);
+        }
+        if (loadedProducts.length > 0 && !selectedForecastProduct) {
+          setSelectedForecastProduct(loadedProducts[0].id);
         }
       }
 
-      if (['Movimientos', 'Ventas', 'Clasificación ABC', 'Pronósticos', 'Reportes'].includes(page)) {
-        const movs = await inventoryApi.getMovimientos().catch(() => []);
-        setMovements(movs);
+      if (['Movimientos', 'Ventas', 'Reportes'].includes(page)) {
+        const loadedMovements = await inventoryApi.getMovimientos().catch(() => []);
+        setMovements(loadedMovements);
       }
 
       if (['Almacenes', 'Movimientos', 'Lotes y vencimientos', 'Ventas', 'Productos'].includes(page)) {
-        const alms = await organizationApi.getAlmacenes().catch(() => []);
-        setWarehouses(alms);
+        const loadedWarehouses = await organizationApi.getAlmacenes().catch(() => []);
+        setWarehouses(loadedWarehouses);
       }
 
       if (['Lotes y vencimientos', 'Alertas'].includes(page)) {
-        const lts = await catalogApi.getLotes().catch(() => []);
-        setLots(lts);
+        const loadedLots = await catalogApi.getLotes().catch(() => []);
+        setLots(loadedLots);
       }
 
-      if (['Proveedores', 'Reabastecimiento'].includes(page)) {
-        const sups = await suppliersApi.getProveedores().catch(() => []);
-        setSuppliers(sups);
+      if (page === 'Proveedores') {
+        const loadedSuppliers = await suppliersApi.getProveedores().catch(() => []);
+        setSuppliers(loadedSuppliers);
       }
 
       if (['Ventas', 'Reportes'].includes(page)) {
-        const sls = await salesApi.getVentas().catch(() => []);
-        setSales(sls);
-      }
-
-      if (['Reabastecimiento', 'Alertas'].includes(page)) {
-        const recs = await aiApi.getRecomendaciones().catch(() => []);
-        setRecommendations(recs);
+        const loadedSales = await salesApi.getVentas().catch(() => []);
+        setSales(loadedSales);
       }
 
       if (page === 'Usuarios') {
-        const us = await iamApi.getUsuarios().catch(() => []);
-        setUsers(us);
+        const loadedUsers = await iamApi.getUsuarios().catch(() => []);
+        setUsers(loadedUsers);
+      }
+
+      if (page === 'Clasificación ABC') {
+        const loadedClassifications = await analyticsApi.getAbcClassification().catch(() => []);
+        setAbcClassifications(loadedClassifications);
+      }
+
+      if (page === 'Reabastecimiento') {
+        const loadedPolicies = await analyticsApi.getReplenishmentPolicies().catch(() => []);
+        setReplenishmentPolicies(loadedPolicies);
       }
     } catch (err) {
       console.warn('Error loading workspace data:', err);
     } finally {
       setLoading(false);
     }
-  }, [page, refreshTrigger, selectedKardexProd]);
+  }, [page, refreshTrigger, selectedKardexProd, selectedForecastProduct]);
 
   useEffect(() => {
     loadData();
@@ -196,34 +206,18 @@ export function Workspace({
     }
   };
 
-  // AI Assistant actions
-  const handleTriggerAiAnalysis = async () => {
+  const handleUpdateCalculations = async () => {
     try {
-      setAnalyzingAi(true);
-      const res = await aiApi.analizar();
-      notify(`IA completó análisis: ${res.generadas} recomendaciones de compra generadas`);
-      loadData();
+      setUpdatingCalculations(true);
+      const result = await analyticsApi.updateCalculations(30, 14);
+      notify(
+        `Cálculos actualizados: ${result.updatedClassifications} clasificaciones y ${result.updatedPolicies} políticas de reposición.`,
+      );
+      await loadData();
     } catch (err: any) {
-      notify(err.message || 'Error al ejecutar análisis de IA');
+      notify(err.message || 'No se pudieron actualizar los cálculos');
     } finally {
-      setAnalyzingAi(false);
-    }
-  };
-
-  const handleDecideAiRecommendation = async (
-    id: string,
-    decision: 'APROBADA' | 'RECHAZADA',
-  ) => {
-    try {
-      const res = await aiApi.decidirRecomendacion(id, { decision });
-      if (decision === 'APROBADA') {
-        notify('Sugerencia aprobada: se generó automáticamente la orden en Movimientos');
-      } else {
-        notify('Sugerencia descartada');
-      }
-      loadData();
-    } catch (err: any) {
-      notify(err.message || 'Error al procesar recomendación');
+      setUpdatingCalculations(false);
     }
   };
 
@@ -231,9 +225,9 @@ export function Workspace({
   const exportProducts = () => {
     downloadCSV('inventix-productos', [
       ['SKU', 'Producto', 'Categoría', 'Stock Total', 'Costo Promedio', 'Precio Venta', 'Valorizado Costo'],
-      ...products.map((p) => {
-        const stk = getProductStock(p.id);
-        return [p.sku, p.nombre, p.categoria?.nombre || 'General', stk, p.costoPromedio, p.precioVenta, stk * p.costoPromedio];
+      ...products.map((product) => {
+        const currentStock = getProductStock(product.id);
+        return [product.sku, product.nombre, product.categoria?.nombre || 'General', currentStock, product.costoPromedio, product.precioVenta, currentStock * product.costoPromedio];
       }),
     ]);
     notify('Reporte de productos descargado en CSV');
@@ -300,10 +294,10 @@ export function Workspace({
             </button>
           )}
 
-          {page === 'Reabastecimiento' && (
-            <button className="primary" onClick={handleTriggerAiAnalysis} disabled={analyzingAi}>
-              <Sparkles size={17} />
-              {analyzingAi ? 'Analizando con Gemini...' : '⚡ Ejecutar Asistente IA'}
+          {['Clasificación ABC', 'Reabastecimiento'].includes(page) && (
+            <button className="primary" onClick={handleUpdateCalculations} disabled={updatingCalculations}>
+              <RefreshCw size={17} />
+              {updatingCalculations ? 'Actualizando...' : 'Actualizar cálculos'}
             </button>
           )}
 
@@ -364,9 +358,7 @@ export function Workspace({
             </select>
           )}
 
-          <span className="toolbar-note" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="dot" style={{ background: '#28634f' }} /> Base de Datos Conectada
-          </span>
+          <span className="toolbar-note">Los resultados corresponden a los registros guardados.</span>
         </div>
       )}
 
@@ -689,57 +681,31 @@ export function Workspace({
           <div className="info-banner">
             <TrendingUp size={24} />
             <div>
-              <strong>Demanda Estimada y Horizonte de Planificación</strong>
-              <p>
-                Calculado a partir del historial de movimientos y salidas con análisis de cobertura temporal.
-              </p>
+              <strong>Pronóstico de demanda</strong>
+              <p>La proyección utilizará exclusivamente el historial de ventas registrado para el producto seleccionado.</p>
             </div>
           </div>
-
           <section className="panel">
             <div className="panel-heading">
               <div>
-                <h2>Demanda Proyectada</h2>
-                <p>Horizonte de días para cálculo de aprovisionamiento</p>
+                <h2>Consulta por producto</h2>
+                <p>Selecciona el artículo y el horizonte que deseas evaluar.</p>
               </div>
               <div className="segmented">
-                {[30, 60, 90].map((d) => (
-                  <button
-                    className={horizon === d ? 'selected' : ''}
-                    key={d}
-                    onClick={() => setHorizon(d)}
-                  >
-                    {d} días
+                {[30, 60, 90].map((days) => (
+                  <button key={days} className={forecastHorizon === days ? 'selected' : ''} onClick={() => setForecastHorizon(days)}>
+                    {days} días
                   </button>
                 ))}
               </div>
             </div>
-
-            <TrendChart horizon={horizon} />
-
-            <Table headers={['Producto', 'Stock Actual', 'Punto Reorden (ROP)', 'Cobertura Estimada', 'Estado']}>
-              {products.map((p) => {
-                const stk = getProductStock(p.id);
-                const rop = p.puntoReorden || p.stockMinimo * 2;
-                const needOrder = stk <= rop;
-                return (
-                  <tr key={p.id}>
-                    <td>
-                      <strong>{p.nombre}</strong>
-                      <small>{p.sku}</small>
-                    </td>
-                    <td>{stk} unidades</td>
-                    <td>{rop} unidades</td>
-                    <td>{Math.max(1, Math.round((stk / (rop || 1)) * horizon))} días</td>
-                    <td>
-                      <Badge tone={needOrder ? 'amber' : 'green'}>
-                        {needOrder ? 'Reponer' : 'Stock Saludable'}
-                      </Badge>
-                    </td>
-                  </tr>
-                );
-              })}
-            </Table>
+            <div className="forecast-controls">
+              <label htmlFor="forecast-product">Producto</label>
+              <select id="forecast-product" value={selectedForecastProduct} onChange={(event) => setSelectedForecastProduct(event.target.value)}>
+                {products.map((product) => <option key={product.id} value={product.id}>{product.sku} · {product.nombre}</option>)}
+              </select>
+            </div>
+            <Empty text={`Aún no hay una proyección de ${forecastHorizon} días disponible. Se necesita historial de ventas suficiente para evitar resultados imprecisos.`} />
           </section>
         </>
       )}
@@ -747,71 +713,42 @@ export function Workspace({
       {/* 8. CLASIFICACIÓN ABC */}
       {page === 'Clasificación ABC' && (
         <>
-          <div className="mini-stats">
+          <div className="info-banner">
+            <BarChart3 size={24} />
             <div>
-              <span>Clase A · Alto Impacto (80%)</span>
-              <strong>{Math.ceil(products.length * 0.2)} productos</strong>
-            </div>
-            <div>
-              <span>Clase B · Impacto Medio (15%)</span>
-              <strong>{Math.ceil(products.length * 0.3)} productos</strong>
-            </div>
-            <div>
-              <span>Clase C · Bajo Impacto (5%)</span>
-              <strong>{Math.max(0, products.length - Math.ceil(products.length * 0.5))} productos</strong>
+              <strong>Clasificación por valor de consumo</strong>
+              <p>Los productos se ordenan usando las ventas y costos registrados durante el periodo analizado.</p>
             </div>
           </div>
-
           <section className="panel">
             <div className="panel-heading">
-              <div>
-                <h2>Análisis de Pareto del Inventario</h2>
-                <p>Priorización de productos según valor económico y rotación</p>
-              </div>
+              <div><h2>Resultado ABC</h2><p>A: mayor impacto, B: impacto intermedio, C: menor impacto.</p></div>
             </div>
-
-            <Table headers={['Producto', 'Clase', 'Stock', 'Valor Económico', 'Participación']}>
-              {products.map((p, idx) => {
-                const stk = getProductStock(p.id);
-                const val = stk * p.costoPromedio;
-                const cls = idx < Math.ceil(products.length * 0.2) ? 'A' : idx < Math.ceil(products.length * 0.5) ? 'B' : 'C';
-                const share = Math.max(5, Math.min(80, 80 - idx * 15));
-                return (
-                  <tr key={p.id}>
-                    <td>
-                      <strong>{p.nombre}</strong>
-                      <small>{p.sku}</small>
-                    </td>
-                    <td>
-                      <Badge tone={cls === 'A' ? 'green' : cls === 'B' ? 'amber' : 'gray'}>
-                        Clase {cls}
-                      </Badge>
-                    </td>
-                    <td>{stk} und.</td>
-                    <td>{money(val)}</td>
-                    <td>
-                      <div className="share">
-                        <span style={{ width: `${share}%` }} />
-                      </div>
-                      {share}%
-                    </td>
-                  </tr>
-                );
-              })}
+            <Table headers={['Producto', 'Clasificación', 'Valor de consumo', 'Participación', 'Periodo']}>
+              {abcClassifications.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.product.name}</strong><small>{item.product.sku}</small></td>
+                  <td><Badge tone={item.classification === 'A' ? 'green' : item.classification === 'B' ? 'amber' : 'gray'}>Clase {item.classification}</Badge></td>
+                  <td>{money(item.consumptionValue)}</td>
+                  <td>{item.participationPercentage.toFixed(2)}%</td>
+                  <td>{date(item.periodStart)} – {date(item.periodEnd)}</td>
+                </tr>
+              ))}
             </Table>
+            {!abcClassifications.length && !loading && <Empty text="No hay datos suficientes para clasificar el catálogo. Registra ventas y actualiza los cálculos." />}
           </section>
         </>
       )}
 
-      {/* 9. REABASTECIMIENTO & ASISTENTE IA */}
+      {/* 9. REABASTECIMIENTO */}
       {page === 'Reabastecimiento' && (
         <>
-          <div className="info-banner" style={{ background: '#f5f7ee', borderColor: '#e4dcc5' }}>
-            <Sparkles size={24} style={{ color: '#b79a60' }} />
+          <div className="info-banner">
+            <ShoppingCart size={24} />
             <div>
-              <strong>Asistente Predictivo con IA (Human-in-the-Loop)</strong>
+              <strong>Control de reabastecimiento</strong>
               <p>
-                El asistente combina la fórmula de Punto de Reorden (ROP), clasificación ABC y razonamiento con Gemini para proponer la cantidad exacta a comprar. Al aprobar, se genera automáticamente el borrador de orden de compra.
+                Esta lista compara el stock actual con la política de seguridad y el punto de reorden calculados para cada almacén.
               </p>
             </div>
           </div>
@@ -819,90 +756,39 @@ export function Workspace({
           <section className="panel">
             <div className="panel-heading">
               <div>
-                <h2>Recomendaciones Generadas por el Asistente IA</h2>
-                <p>Aprobación supervisada por el encargado del negocio</p>
+                <h2>Políticas de reposición</h2>
+                <p>Revisa los niveles calculados antes de emitir una orden de compra.</p>
               </div>
-              <button className="primary" onClick={handleTriggerAiAnalysis} disabled={analyzingAi}>
-                <Sparkles size={16} />
-                {analyzingAi ? 'Analizando...' : 'Actualizar Análisis IA'}
-              </button>
             </div>
 
-            <Table headers={['Producto', 'Almacén', 'Cantidad Sugerida', 'Prioridad', 'Explicación del Asistente', 'Decisión']}>
-              {recommendations.map((r) => {
-                const isPending = r.estado === 'PENDIENTE';
+            <Table headers={['Producto', 'Almacén', 'Stock actual', 'Stock de seguridad', 'Punto de reorden', 'Stock máximo', 'Estado']}>
+              {replenishmentPolicies.map((policy) => {
+                const currentStock = getProductStock(policy.product.id);
+                const needsReplenishment = currentStock <= policy.reorderPoint;
                 return (
-                  <tr key={r.id}>
+                  <tr key={policy.id}>
                     <td>
-                      <strong>{r.producto?.nombre || 'Producto'}</strong>
-                      <small>{r.producto?.sku}</small>
+                      <strong>{policy.product.name}</strong>
+                      <small>{policy.product.sku}</small>
                     </td>
-                    <td>{r.almacen?.nombre || 'Almacén Principal'}</td>
-                    <td>
-                      <strong style={{ fontSize: 13, color: '#28634f' }}>
-                        {r.cantidadSugerida} unidades
-                      </strong>
-                    </td>
-                    <td>
-                      <Badge
-                        tone={
-                          r.prioridad === 'CRITICA'
-                            ? 'red'
-                            : r.prioridad === 'ALTA'
-                              ? 'amber'
-                              : 'green'
-                        }
-                      >
-                        {r.prioridad}
-                      </Badge>
-                    </td>
-                    <td style={{ maxWidth: 360, whiteSpace: 'normal', fontSize: 11, color: '#556655' }}>
-                      {r.justificacion}
-                    </td>
-                    <td>
-                      {isPending ? (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            className="primary"
-                            style={{ fontSize: 11, padding: '4px 8px' }}
-                            onClick={() => handleDecideAiRecommendation(r.id, 'APROBADA')}
-                            title="Generar borrador de orden en Kardex"
-                          >
-                            <CheckCircle2 size={13} /> Aprobar
-                          </button>
-                          <button
-                            className="secondary"
-                            style={{ fontSize: 11, padding: '4px 8px' }}
-                            onClick={() => handleDecideAiRecommendation(r.id, 'RECHAZADA')}
-                          >
-                            <XCircle size={13} /> Descartar
-                          </button>
-                        </div>
-                      ) : (
-                        <Badge tone={r.estado === 'APROBADA' ? 'green' : 'gray'}>
-                          {r.estado}
-                        </Badge>
-                      )}
-                    </td>
+                    <td>{policy.warehouse.name}</td>
+                    <td>{currentStock} unidades</td>
+                    <td>{policy.safetyStock} unidades</td>
+                    <td>{policy.reorderPoint} unidades</td>
+                    <td>{policy.maximumStock} unidades</td>
+                    <td><Badge tone={currentStock === 0 ? 'red' : needsReplenishment ? 'amber' : 'green'}>{currentStock === 0 ? 'Sin stock' : needsReplenishment ? 'Reponer' : 'Cubierto'}</Badge></td>
                   </tr>
                 );
               })}
             </Table>
-            {!recommendations.length && !loading && (
-              <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                <p style={{ color: '#889988', marginBottom: 16 }}>
-                  No hay recomendaciones pendientes. Presiona el botón para ejecutar el asistente IA sobre tu inventario actual.
-                </p>
-                <button className="primary" onClick={handleTriggerAiAnalysis} disabled={analyzingAi}>
-                  <Sparkles size={16} /> Ejecutar Asistente IA Ahora
-                </button>
-              </div>
+            {!replenishmentPolicies.length && !loading && (
+              <Empty text="Todavía no hay políticas calculadas. Registra ventas, proveedores y tiempos de entrega antes de actualizar los cálculos." />
             )}
           </section>
         </>
       )}
 
-      {/* 10. REPORTES & KARDEX */}
+      {/* 10. REPORTES Y KARDEX */}
       {page === 'Reportes' && (
         <>
           <div className="cards-grid report-options">
