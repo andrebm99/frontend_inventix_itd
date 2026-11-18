@@ -3,8 +3,19 @@ import { CheckCircle2, X } from "lucide-react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AppLayout } from "./layouts/AppLayout";
 import { Dashboard } from "./pages/Dashboard";
-import { Workspace } from "./pages/Workspace";
 import { Login } from "./pages/Login";
+import { ProductosPage } from "./pages/workspace/ProductosPage";
+import { MovimientosPage } from "./pages/workspace/MovimientosPage";
+import { AlmacenesPage } from "./pages/workspace/AlmacenesPage";
+import { LotesPage } from "./pages/workspace/LotesPage";
+import { ProveedoresPage } from "./pages/workspace/ProveedoresPage";
+import { VentasPage } from "./pages/workspace/VentasPage";
+import { PronosticosPage } from "./pages/workspace/PronosticosPage";
+import { ClasificacionAbcPage } from "./pages/workspace/ClasificacionAbcPage";
+import { ReabastecimientoPage } from "./pages/workspace/ReabastecimientoPage";
+import { ReportesPage } from "./pages/workspace/ReportesPage";
+import { UsuariosPage } from "./pages/workspace/UsuariosPage";
+import { AlertasPage } from "./pages/workspace/AlertasPage";
 import { Modal } from "./components/UI";
 import { RecordForm, type FormKind } from "./components/RecordForm";
 import type { Page } from "./types";
@@ -91,6 +102,37 @@ function MainApp() {
     setRefreshTrigger((prev) => prev + 1);
   };
 
+  const workspaceProps = {
+    openForm,
+    notify: setToast,
+    refreshTrigger,
+  };
+
+  function renderPage() {
+    switch (page) {
+      case "Productos": return <ProductosPage {...workspaceProps} />;
+      case "Movimientos": return <MovimientosPage {...workspaceProps} />;
+      case "Almacenes": return <AlmacenesPage {...workspaceProps} />;
+      case "Lotes y vencimientos": return <LotesPage {...workspaceProps} />;
+      case "Proveedores": return <ProveedoresPage {...workspaceProps} />;
+      case "Ventas": return <VentasPage {...workspaceProps} />;
+      case "Pronósticos": return <PronosticosPage {...workspaceProps} />;
+      case "Clasificación ABC": return <ClasificacionAbcPage {...workspaceProps} />;
+      case "Reabastecimiento": return <ReabastecimientoPage {...workspaceProps} />;
+      case "Reportes": return <ReportesPage {...workspaceProps} />;
+      case "Usuarios": return <UsuariosPage {...workspaceProps} />;
+      case "Alertas": return <AlertasPage {...workspaceProps} />;
+      default: return (
+        <Dashboard
+          navigate={navigate}
+          onMovement={() => openForm("movement")}
+          onProduct={() => openForm("product")}
+          onSale={() => openForm("sale")}
+        />
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div
@@ -126,22 +168,7 @@ function MainApp() {
         mobile={mobile}
         setMobile={setMobile}
       >
-        {page === "Resumen" ? (
-          <Dashboard
-            navigate={navigate}
-            onMovement={() => openForm("movement")}
-            onProduct={() => openForm("product")}
-            onSale={() => openForm("sale")}
-          />
-        ) : (
-          <Workspace
-            key={page}
-            page={page}
-            openForm={openForm}
-            notify={setToast}
-            refreshTrigger={refreshTrigger}
-          />
-        )}
+        {renderPage()}
       </AppLayout>
 
       {form && (

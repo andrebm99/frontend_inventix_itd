@@ -159,7 +159,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.usuario);
       localStorage.setItem('inventix_user', JSON.stringify(res.usuario));
 
-      // Fetch or initialize businesses
       await refreshNegocios();
     } catch (err: any) {
       setError(err.message || 'Error al registrar usuario');
