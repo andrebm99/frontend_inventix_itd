@@ -1,6 +1,7 @@
 import { ArrowLeftRight, BarChart3, Box, CalendarClock, ChartNoAxesCombined, FileChartColumn, LayoutDashboard, LogOut, Package, ShoppingBag, ShoppingCart, Truck, Users, Warehouse } from 'lucide-react';
 import type { Page } from '../../types';
 import type { BusinessItem, UserProfile } from '../../api/types';
+import { canAccessPage } from '../../auth/permissions';
 
 const navigationGroups = [
   { title: 'GENERAL', items: [['Resumen', LayoutDashboard], ['Productos', Package], ['Movimientos', ArrowLeftRight], ['Almacenes', Warehouse], ['Lotes y vencimientos', CalendarClock], ['Proveedores', Truck], ['Ventas', ShoppingBag]] },
@@ -18,9 +19,10 @@ interface SidebarNavigationProps {
   onClose: () => void;
   onSwitchBusiness: (id: string) => void;
   onLogout: () => void;
+  hasPermission: (...permissions: string[]) => boolean;
 }
 
-export function SidebarNavigation({ page, isOpen, user, activeBusiness, businesses, onNavigate, onClose, onSwitchBusiness, onLogout }: SidebarNavigationProps) {
+export function SidebarNavigation({ page, isOpen, user, activeBusiness, businesses, onNavigate, onClose, onSwitchBusiness, onLogout, hasPermission }: SidebarNavigationProps) {
   const userInitial = user?.nombre?.[0]?.toUpperCase() ?? 'U';
   const businessInitial = activeBusiness?.nombre?.[0]?.toUpperCase() ?? 'N';
   const navigateTo = (destination: Page) => { onNavigate(destination); onClose(); };
@@ -44,21 +46,26 @@ export function SidebarNavigation({ page, isOpen, user, activeBusiness, business
           </div>
         </div>
         <nav>
-          {navigationGroups.map((group) => (
+          {navigationGroups.map((group) => {
+            const visibleItems = group.items.filter(([name]) =>
+              canAccessPage(name as Page, hasPermission),
+            );
+            if (visibleItems.length === 0) return null;
+            return (
             <div className="nav-group" key={group.title}>
               <p>{group.title}</p>
-              {group.items.map(([name, Icon]) => (
+              {visibleItems.map(([name, Icon]) => (
                 <button key={name} className={page === name ? 'nav-item active' : 'nav-item'} onClick={() => navigateTo(name as Page)}>
                   <Icon size={18} />{name}
                   {name === 'Lotes y vencimientos' && <span className="nav-count">FEFO</span>}
                 </button>
               ))}
             </div>
-          ))}
+          );})}
         </nav>
         <button className="profile" onClick={onLogout} title="Cerrar sesión">
           <span className="avatar">{userInitial}</span>
-          <span className="profile-details"><strong>{user?.nombre || 'Usuario'}</strong><small>{activeBusiness?.rol || 'OPERADOR'}</small></span>
+          <span className="profile-details"><strong>{user?.nombre || 'Usuario'}</strong><small>{activeBusiness?.rol.nombre || 'SIN ROL'}</small></span>
           <LogOut size={16} />
         </button>
       </aside>

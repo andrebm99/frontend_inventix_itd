@@ -7,6 +7,7 @@ export interface WorkspacePageProps {
   openForm: (kind: FormKind, edit?: any, initialType?: string) => void;
   notify: (message: string) => void;
   refreshTrigger: number;
+  hasPermission: (...permissions: string[]) => boolean;
 }
 
 export function PageHeader({

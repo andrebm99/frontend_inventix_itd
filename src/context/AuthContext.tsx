@@ -29,6 +29,7 @@ interface AuthContextType {
   switchNegocio: (id: string) => void;
   logout: () => void;
   refreshNegocios: () => Promise<void>;
+  hasPermission: (...permissions: string[]) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Cambia el negocio activo y guarda su identificador en la sesión.
   const switchNegocio = useCallback((id: string) => {
     setNegocioId(id);
     const found = negocios.find((b) => b.id === id);
@@ -56,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [negocios]);
 
+  // Actualiza los negocios del usuario y conserva el negocio seleccionado.
   const refreshNegocios = useCallback(async () => {
     if (!getToken()) return;
     try {
@@ -74,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Restaura la sesión y los datos del usuario al iniciar la aplicación.
   const initAuth = useCallback(async () => {
     const t = getToken();
     if (!t) {
@@ -109,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     initAuth();
 
+    // Limpia el estado local cuando la API informa que la sesión ya no es válida.
     const handleUnauthorized = () => {
       setTokenState(null);
       setUser(null);
@@ -122,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [initAuth]);
 
+  // Inicia sesión y carga el usuario junto con sus negocios.
   const login = async (correo: string, pass: string) => {
     setError(null);
     setLoading(true);
@@ -149,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Registra un usuario, guarda su sesión y carga sus negocios.
   const register = async (nombre: string, correo: string, pass: string) => {
     setError(null);
     setLoading(true);
@@ -168,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Crea un negocio y lo establece como el negocio seleccionado.
   const createBusiness = async (nombre: string, ruc: string, telefono?: string) => {
     setError(null);
     setLoading(true);
@@ -187,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Cierra la sesión y restablece el estado de autenticación.
   const logout = () => {
     clearSession();
     setTokenState(null);
@@ -195,6 +204,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActiveNegocio(null);
     window.location.hash = '#Resumen';
   };
+
+  // Comprueba que el rol activo tenga todos los permisos solicitados.
+  const hasPermission = useCallback((...permissions: string[]) => {
+    if (!activeNegocio) return false;
+    if (activeNegocio.rol.nivelJerarquia >= 100) return true;
+    return permissions.every((permission) =>
+      activeNegocio.rol.permisos.includes(permission),
+    );
+  }, [activeNegocio]);
 
   return (
     <AuthContext.Provider
@@ -211,6 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         switchNegocio,
         logout,
         refreshNegocios,
+        hasPermission,
       }}
     >
       {children}
@@ -218,6 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// Permite acceder al contexto solo desde componentes dentro de AuthProvider.
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) {

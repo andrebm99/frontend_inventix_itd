@@ -23,11 +23,13 @@ export function Dashboard({
   onMovement,
   onProduct,
   onSale,
+  hasPermission,
 }: {
   navigate: (p: Page) => void;
   onMovement: () => void;
   onProduct: () => void;
   onSale: () => void;
+  hasPermission: (...permissions: string[]) => boolean;
 }) {
   const [data, setData] = useState<any | null>(null);
   const [movements, setMovements] = useState<any[]>([]);
@@ -85,9 +87,9 @@ export function Dashboard({
           <p>Existencias, ventas, movimientos y lotes registrados en el sistema.</p>
         </div>
         <div className="heading-actions">
-          <button className="primary" onClick={onMovement}>
+          {hasPermission('inventario:write') && <button className="primary" onClick={onMovement}>
             <Plus size={18} /> Registrar movimiento
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -273,7 +275,7 @@ export function Dashboard({
           <h2>Accesos Rápidos</h2>
           <p>Acciones cotidianas de tu operativa.</p>
 
-          <button onClick={onSale}>
+          {hasPermission('venta:create') && <button onClick={onSale}>
             <span>
               <ShoppingBag size={19} />
             </span>
@@ -282,9 +284,9 @@ export function Dashboard({
               <small>Facturación y deducción FEFO automática</small>
             </div>
             <Plus size={17} />
-          </button>
+          </button>}
 
-          <button onClick={onMovement}>
+          {hasPermission('inventario:write') && <button onClick={onMovement}>
             <span>
               <ArrowLeftRight size={19} />
             </span>
@@ -293,9 +295,9 @@ export function Dashboard({
               <small>Entrada, salida, traslado o merma</small>
             </div>
             <Plus size={17} />
-          </button>
+          </button>}
 
-          <button onClick={onProduct}>
+          {hasPermission('catalogo:write') && <button onClick={onProduct}>
             <span>
               <Package size={19} />
             </span>
@@ -304,7 +306,7 @@ export function Dashboard({
               <small>SKU, códigos de barra y categorías</small>
             </div>
             <Plus size={17} />
-          </button>
+          </button>}
 
           <button onClick={() => navigate('Reportes')}>
             <span>

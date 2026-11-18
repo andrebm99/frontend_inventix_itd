@@ -26,8 +26,9 @@ SET @proveedor_1   = '17000000-0000-4000-8000-000000000001';
 SET @proveedor_2   = '17000000-0000-4000-8000-000000000002';
 SET @usuario_1     = '18000000-0000-4000-8000-000000000001';
 SET @usuario_2     = '18000000-0000-4000-8000-000000000002';
-SET @rol_1         = '19000000-0000-4000-8000-000000000001';
-SET @rol_2         = '19000000-0000-4000-8000-000000000002';
+-- Se reutilizan los roles globales inicializados por la API.
+SET @rol_1         = NULL;
+SET @rol_2         = NULL;
 SET @metodo_1      = '1b000000-0000-4000-8000-000000000001';
 SET @metodo_2      = '1b000000-0000-4000-8000-000000000002';
 SET @movimiento_1  = '1c000000-0000-4000-8000-000000000001';
@@ -159,10 +160,15 @@ VALUES
 ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion);
 
 INSERT INTO rol (id, negocio_id, nombre, descripcion, nivel_jerarquia)
-VALUES
-  (@rol_1, @negocio, 'PROPIETARIO', 'Propietario del negocio de demostración', 100),
-  (@rol_2, @negocio, 'VENDEDOR', 'Vendedor del negocio de demostración', 20)
-ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), descripcion = VALUES(descripcion);
+SELECT '19000000-0000-4000-8000-000000000001', NULL, 'PROPIETARIO', 'Propietario del negocio', 100
+WHERE NOT EXISTS (SELECT 1 FROM rol WHERE negocio_id IS NULL AND nombre = 'PROPIETARIO');
+
+INSERT INTO rol (id, negocio_id, nombre, descripcion, nivel_jerarquia)
+SELECT '19000000-0000-4000-8000-000000000002', NULL, 'VENDEDOR', 'Vendedor del negocio', 20
+WHERE NOT EXISTS (SELECT 1 FROM rol WHERE negocio_id IS NULL AND nombre = 'VENDEDOR');
+
+SET @rol_1 = (SELECT id FROM rol WHERE negocio_id IS NULL AND nombre = 'PROPIETARIO' ORDER BY id LIMIT 1);
+SET @rol_2 = (SELECT id FROM rol WHERE negocio_id IS NULL AND nombre = 'VENDEDOR' ORDER BY id LIMIT 1);
 
 INSERT INTO rol_permiso (rol_id, permiso_id)
 SELECT @rol_1, id FROM permiso

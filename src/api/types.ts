@@ -1,9 +1,11 @@
-export type RoleName =
-  | 'PROPIETARIO'
-  | 'ADMIN'
-  | 'SUPERVISOR_ALMACEN'
-  | 'OPERADOR_ALMACEN'
-  | 'CAJERO';
+export type RoleName = string;
+
+export interface BusinessRole {
+  id: string;
+  nombre: RoleName;
+  nivelJerarquia: number;
+  permisos: string[];
+}
 
 export interface UserProfile {
   id: string;
@@ -18,7 +20,7 @@ export interface BusinessItem {
   ruc: string;
   correoContacto?: string;
   telefono?: string;
-  rol: RoleName;
+  rol: BusinessRole;
 }
 
 export interface AuthResponse {
@@ -282,5 +284,14 @@ export interface IamRole {
   nombre: string;
   descripcion?: string;
   nivel_jerarquia?: number;
+  negocio_id?: string | null;
+  esGlobal?: boolean;
+  permisos: string[];
+}
+
+export interface IamPermission {
+  id: string;
+  clave: string;
+  descripcion: string;
 }
 

@@ -9,6 +9,7 @@ interface NavbarProps {
   alertCount: number;
   onOpenMenu: () => void;
   onNavigate: (page: Page) => void;
+  canViewAlerts: boolean;
 }
 
 export function Navbar({
@@ -18,19 +19,20 @@ export function Navbar({
   alertCount,
   onOpenMenu,
   onNavigate,
+  canViewAlerts,
 }: NavbarProps) {
   const userInitial = user?.nombre?.[0]?.toUpperCase() ?? "U";
 
   return (
     <header className="topbar">
       <div className="breadcrumb">
-        <button
+        {canViewAlerts && <button
           className="mobile-menu"
           aria-label="Abrir menú"
           onClick={onOpenMenu}
         >
           <Menu size={22} />
-        </button>
+        </button>}
         <span>{activeBusiness?.nombre || "Mi negocio"}</span>
         <span>/</span>
         <strong>{page}</strong>

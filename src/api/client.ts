@@ -1,9 +1,11 @@
 const API_BASE = '/api/v1';
 
+// Obtiene el token guardado para autenticar las solicitudes.
 export function getToken(): string | null {
   return localStorage.getItem('inventix_token');
 }
 
+// Guarda o elimina el token de acceso de la sesión.
 export function setToken(token: string | null): void {
   if (token) {
     localStorage.setItem('inventix_token', token);
@@ -12,10 +14,12 @@ export function setToken(token: string | null): void {
   }
 }
 
+// Obtiene el negocio seleccionado actualmente.
 export function getNegocioId(): string | null {
   return localStorage.getItem('inventix_negocio_id');
 }
 
+// Guarda o elimina el negocio activo de la sesión.
 export function setNegocioId(id: string | null): void {
   if (id) {
     localStorage.setItem('inventix_negocio_id', id);
@@ -24,6 +28,7 @@ export function setNegocioId(id: string | null): void {
   }
 }
 
+// Elimina los datos locales asociados a la sesión actual.
 export function clearSession(): void {
   localStorage.removeItem('inventix_token');
   localStorage.removeItem('inventix_negocio_id');
@@ -31,6 +36,7 @@ export function clearSession(): void {
   sessionStorage.clear();
 }
 
+// Representa un error devuelto por la API junto con su estado y detalle.
 export class ApiError extends Error {
   statusCode: number;
   data: any;
@@ -42,6 +48,7 @@ export class ApiError extends Error {
   }
 }
 
+// Envía solicitudes autenticadas y unifica el manejo de respuestas y errores.
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const negocioId = getNegocioId();

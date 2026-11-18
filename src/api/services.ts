@@ -9,6 +9,7 @@ import type {
   Categoria,
   DashboardReporte,
   IamRole,
+  IamPermission,
   IamUserItem,
   Lote,
   MetodoPago,
@@ -26,7 +27,7 @@ import type {
 type ApiBusinessItem = Omit<BusinessItem, 'id' | 'rol'> & {
   id?: string;
   negocioId?: string;
-  rol: BusinessItem['rol'] | { nombre: BusinessItem['rol'] };
+  rol: BusinessItem['rol'] | string;
 };
 
 type ApiAuthResponse = Omit<AuthResponse, 'negocios'> & { negocios?: ApiBusinessItem[] };
@@ -41,7 +42,9 @@ function normalizeBusiness(item: ApiBusinessItem): BusinessItem {
   return {
     ...item,
     id,
-    rol: typeof item.rol === 'string' ? item.rol : item.rol.nombre,
+    rol: typeof item.rol === 'string'
+      ? { id: '', nombre: item.rol, nivelJerarquia: 1, permisos: [] }
+      : item.rol,
   };
 }
 
@@ -333,6 +336,7 @@ function normalizeSale(item: ApiVenta): Venta {
 }
 
 export const authApi = {
+  // Autentica al usuario y normaliza los negocios recibidos.
   login: async (data: { correo: string; password: string }): Promise<AuthResponse> => {
     const response = await apiFetch<ApiAuthResponse>('/auth/login', {
       method: 'POST',
@@ -341,12 +345,14 @@ export const authApi = {
     return { ...response, negocios: normalizeBusinesses(response.negocios) };
   },
 
+  // Crea una cuenta y devuelve su token de acceso.
   register: (data: { nombre: string; correo: string; password: string }) =>
     apiFetch<{ accessToken: string; usuario: UserProfile }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
+  // Obtiene el perfil y los negocios de la sesión activa.
   getMe: async (): Promise<AuthProfileResponse> => {
     const response = await apiFetch<ApiAuthProfileResponse>('/auth/me');
     return { ...response, negocios: normalizeBusinesses(response.negocios) };
@@ -814,6 +820,7 @@ export const reportsApi = {
 };
 
 export const iamApi = {
+  // Lista los miembros del negocio con su rol y estado normalizados.
   getUsuarios: async (): Promise<IamUserItem[]> => {
     const response = await apiFetch<ApiIamMember[]>('/usuarios-negocio');
     return response.map((item) => ({
@@ -831,6 +838,7 @@ export const iamApi = {
     }));
   },
 
+  // Invita un usuario al negocio y le asigna un rol.
   createUsuario: (data: {
     nombre: string;
     correo: string;
@@ -842,6 +850,29 @@ export const iamApi = {
       body: JSON.stringify(data),
     }),
 
+  // Obtiene los roles disponibles para el negocio actual.
   getRoles: () => apiFetch<IamRole[]>('/roles'),
+  // Obtiene el catálogo de permisos que pueden asignarse a un rol.
+  getPermissions: () => apiFetch<IamPermission[]>('/roles/permisos'),
+  // Crea un rol personalizado con su nivel y permisos.
+  createRole: (data: {
+    nombre: string;
+    descripcion?: string;
+    nivelJerarquia: number;
+    permisoClaves: string[];
+  }) => apiFetch<IamRole>('/roles', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  // Actualiza la configuración de un rol existente.
+  updateRole: (id: string, data: {
+    nombre?: string;
+    descripcion?: string;
+    nivelJerarquia?: number;
+    permisoClaves?: string[];
+  }) => apiFetch<IamRole>(`/roles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
 };
 

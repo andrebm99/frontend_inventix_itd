@@ -15,7 +15,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ page, navigate, children, alerts, mobile, setMobile }: AppLayoutProps) {
-  const { user, activeNegocio, negocios, switchNegocio, logout } = useAuth();
+  const { user, activeNegocio, negocios, switchNegocio, logout, hasPermission } = useAuth();
 
   return (
     <div className="app-shell">
@@ -29,6 +29,7 @@ export function AppLayout({ page, navigate, children, alerts, mobile, setMobile 
         onClose={() => setMobile(false)}
         onSwitchBusiness={switchNegocio}
         onLogout={logout}
+        hasPermission={hasPermission}
       />
       <div className="main-shell">
         <Navbar
@@ -38,6 +39,7 @@ export function AppLayout({ page, navigate, children, alerts, mobile, setMobile 
           alertCount={alerts}
           onOpenMenu={() => setMobile(true)}
           onNavigate={navigate}
+          canViewAlerts={hasPermission('catalogo:read')}
         />
         <main>{children}</main>
         <AppFooter />

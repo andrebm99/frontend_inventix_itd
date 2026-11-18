@@ -21,6 +21,7 @@ import { RecordForm, type FormKind } from "./components/RecordForm";
 import type { Page } from "./types";
 import type { Producto } from "./api/types";
 import { reportsApi } from "./api/services";
+import { canAccessPage, FORM_PERMISSION } from "./auth/permissions";
 
 const pages: Page[] = [
   "Resumen",
@@ -48,7 +49,7 @@ function currentPage(): Page {
 }
 
 function MainApp() {
-  const { user, token, activeNegocio, loading } = useAuth();
+  const { user, token, activeNegocio, loading, hasPermission } = useAuth();
   const [page, setPage] = useState<Page>(currentPage);
   const [form, setForm] = useState<
     { kind: FormKind; edit?: Producto; initialType?: string } | undefined
@@ -64,6 +65,15 @@ function MainApp() {
     return () => window.removeEventListener("hashchange", handler);
   }, []);
 
+  // Redirige a una sección permitida si el rol no puede ver la actual.
+  useEffect(() => {
+    if (!activeNegocio || canAccessPage(page, hasPermission)) return;
+    const fallback = pages.find((candidate) =>
+      canAccessPage(candidate, hasPermission),
+    );
+    if (fallback) navigate(fallback);
+  }, [activeNegocio, hasPermission, page]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 3500);
@@ -72,7 +82,7 @@ function MainApp() {
 
   // Fetch alert count from dashboard
   const fetchAlerts = useCallback(async () => {
-    if (!token || !activeNegocio) return;
+    if (!token || !activeNegocio || !hasPermission("reporte:read")) return;
     try {
       const rep = await reportsApi.getDashboard();
       const count =
@@ -82,7 +92,7 @@ function MainApp() {
     } catch {
       // ignore
     }
-  }, [token, activeNegocio]);
+  }, [token, activeNegocio, hasPermission]);
 
   useEffect(() => {
     fetchAlerts();
@@ -94,7 +104,12 @@ function MainApp() {
     window.scrollTo({ top: 0 });
   }
 
-  function openForm(kind: FormKind, edit?: any, initialType?: string) {
+  // Abre un formulario solo si el rol posee el permiso requerido.
+  function openForm(kind: FormKind, edit?: Producto, initialType?: string) {
+    if (!hasPermission(FORM_PERMISSION[kind])) {
+      setToast("Tu rol no tiene permiso para realizar esta acción.");
+      return;
+    }
     setForm({ kind, edit, initialType });
   }
 
@@ -106,6 +121,7 @@ function MainApp() {
     openForm,
     notify: setToast,
     refreshTrigger,
+    hasPermission,
   };
 
   function renderPage() {
@@ -128,6 +144,7 @@ function MainApp() {
           onMovement={() => openForm("movement")}
           onProduct={() => openForm("product")}
           onSale={() => openForm("sale")}
+          hasPermission={hasPermission}
         />
       );
     }
