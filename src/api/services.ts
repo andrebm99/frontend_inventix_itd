@@ -8,6 +8,7 @@ import type {
   BusinessItem,
   Categoria,
   DashboardReporte,
+  IamRole,
   IamUserItem,
   Lote,
   MetodoPago,
@@ -129,11 +130,89 @@ interface ApiLote {
 }
 
 interface ApiStockForLot {
+  id?: string;
+  almacen_id?: string;
+  producto_id?: string;
   lote_id?: string | null;
+  codigo_existencia?: string | null;
   cantidad_actual: number;
   cantidad_reservada: number;
   almacen?: { id: string; nombre: string };
-  producto?: { costo_promedio?: number | string | null };
+  producto?: {
+    id?: string;
+    nombre?: string;
+    sku?: string | null;
+    costo_promedio?: number | string | null;
+    precio_venta_base?: number | string | null;
+  };
+}
+
+interface ApiProducto {
+  id: string;
+  sku?: string | null;
+  codigo_barras?: string | null;
+  nombre: string;
+  descripcion?: string | null;
+  precio_venta_base: number | string;
+  costo_promedio?: number | string | null;
+  maneja_lotes?: boolean | null;
+  categoria_id?: string | null;
+  unidad_medida_id?: string | null;
+  activo?: boolean | null;
+  categoria?: { id: string; nombre: string } | null;
+  unidad_medida?: { id: string; nombre: string; simbolo: string } | null;
+}
+
+interface ApiAlmacen {
+  id: string;
+  sucursal_id: string;
+  nombre: string;
+  tipo: Almacen['tipo'];
+  descripcion?: string | null;
+  activo?: boolean | null;
+  sucursal?: { id: string; nombre: string };
+}
+
+interface ApiSucursal {
+  id: string;
+  nombre: string;
+  direccion?: string | null;
+  ciudad?: string | null;
+  telefono?: string | null;
+  almacen?: ApiAlmacen[];
+}
+
+interface ApiProveedor {
+  id: string;
+  razon_social: string;
+  ruc: string;
+  correo?: string | null;
+  telefono?: string | null;
+  lead_time_promedio_dias?: number | null;
+  activo?: boolean | null;
+}
+
+interface ApiVenta {
+  id: string;
+  numero_comprobante: string;
+  total: number | string;
+  fecha_venta?: string;
+  estado?: string | null;
+  detalle_venta?: Array<{
+    id: string;
+    producto_id: string;
+    cantidad: number;
+    precio_unitario: number | string;
+    subtotal_linea: number | string;
+    producto?: { id: string; nombre: string; sku: string };
+  }>;
+}
+
+interface ApiIamMember {
+  id: string;
+  activo?: boolean | null;
+  usuario: { id: string; nombre: string; correo: string };
+  rol: { id: string; nombre: string; nivel_jerarquia?: number | null };
 }
 
 interface ApiKardexResponse {
@@ -190,6 +269,69 @@ function normalizeMovement(item: ApiMovimiento): Movimiento {
   };
 }
 
+function normalizeProduct(item: ApiProducto): Producto {
+  return {
+    id: item.id,
+    sku: item.sku ?? '',
+    codigoBarras: item.codigo_barras ?? undefined,
+    nombre: item.nombre,
+    descripcion: item.descripcion ?? undefined,
+    precioVenta: Number(item.precio_venta_base),
+    costoPromedio: Number(item.costo_promedio ?? 0),
+    stockMinimo: 0,
+    categoriaId: item.categoria_id ?? '',
+    unidadMedidaId: item.unidad_medida_id ?? '',
+    manejaLotes: item.maneja_lotes ?? false,
+    activo: item.activo ?? true,
+    categoria: item.categoria ?? undefined,
+    unidadMedida: item.unidad_medida ?? undefined,
+  };
+}
+
+function normalizeWarehouse(item: ApiAlmacen): Almacen {
+  return {
+    id: item.id,
+    sucursalId: item.sucursal_id,
+    nombre: item.nombre,
+    tipo: item.tipo,
+    descripcion: item.descripcion ?? undefined,
+    activo: item.activo ?? true,
+    sucursal: item.sucursal,
+  };
+}
+
+function normalizeSupplier(item: ApiProveedor): Proveedor {
+  return {
+    id: item.id,
+    nombre: item.razon_social,
+    razonSocial: item.razon_social,
+    ruc: item.ruc,
+    correo: item.correo ?? undefined,
+    telefono: item.telefono ?? undefined,
+    leadTimeDias: item.lead_time_promedio_dias ?? 3,
+    activo: item.activo ?? true,
+  };
+}
+
+function normalizeSale(item: ApiVenta): Venta {
+  return {
+    id: item.id,
+    numeroComprobante: item.numero_comprobante,
+    tipoComprobante: 'VENTA',
+    total: Number(item.total),
+    fecha: item.fecha_venta ?? new Date().toISOString(),
+    estado: item.estado ?? 'EMITIDA',
+    detalles: (item.detalle_venta ?? []).map((detail) => ({
+      id: detail.id,
+      productoId: detail.producto_id,
+      cantidad: detail.cantidad,
+      precioUnitario: Number(detail.precio_unitario),
+      subtotal: Number(detail.subtotal_linea),
+      producto: detail.producto,
+    })),
+  };
+}
+
 export const authApi = {
   login: async (data: { correo: string; password: string }): Promise<AuthResponse> => {
     const response = await apiFetch<ApiAuthResponse>('/auth/login', {
@@ -234,20 +376,33 @@ export const negocioApi = {
 };
 
 export const organizationApi = {
-  getSucursales: () => apiFetch<Sucursal[]>('/sucursales'),
+  getSucursales: async (): Promise<Sucursal[]> => {
+    const response = await apiFetch<ApiSucursal[]>('/sucursales');
+    return response.map((item) => ({
+      id: item.id,
+      nombre: item.nombre,
+      direccion: item.direccion ?? undefined,
+      ciudad: item.ciudad ?? undefined,
+      telefono: item.telefono ?? undefined,
+      almacenes: (item.almacen ?? []).map(normalizeWarehouse),
+    }));
+  },
 
-  getAlmacenes: () => apiFetch<Almacen[]>('/almacenes'),
+  getAlmacenes: async (): Promise<Almacen[]> => {
+    const response = await apiFetch<ApiAlmacen[]>('/almacenes');
+    return response.map(normalizeWarehouse);
+  },
 
   createAlmacen: (data: {
     sucursalId: string;
     nombre: string;
-    codigo: string;
-    tipo: 'PRINCIPAL' | 'PULMON' | 'MERMAS_CUARENTENA';
+    tipo: Almacen['tipo'];
+    descripcion?: string;
   }) =>
-    apiFetch<Almacen>('/almacenes', {
+    apiFetch<ApiAlmacen>('/almacenes', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then(normalizeWarehouse),
 };
 
 export const catalogApi = {
@@ -261,27 +416,9 @@ export const catalogApi = {
 
   getUnidadesMedida: () => apiFetch<UnidadMedida[]>('/unidades-medida'),
 
-  getProductos: async () => {
+  getProductos: async (): Promise<Producto[]> => {
     const list = await apiFetch<any[]>('/productos');
-    return (list || []).map((p) => ({
-      ...p,
-      precioVenta:
-        p.precioVenta !== undefined && p.precioVenta !== null
-          ? Number(p.precioVenta)
-          : Number(p.precio_venta_base || 0),
-      costoPromedio:
-        p.costoPromedio !== undefined && p.costoPromedio !== null
-          ? Number(p.costoPromedio)
-          : Number(p.costo_promedio || 0),
-      codigoBarras: p.codigoBarras || p.codigo_barras || '',
-      categoriaId: p.categoriaId || p.categoria_id,
-      unidadMedidaId: p.unidadMedidaId || p.unidad_medida_id,
-      manejaLotes: p.manejaLotes ?? p.maneja_lotes ?? false,
-      stockMinimo: p.stockMinimo ?? 0,
-      puntoReorden: p.puntoReorden ?? 0,
-      stockMaximo: p.stockMaximo ?? 0,
-      stockTotal: p.stockTotal !== undefined && p.stockTotal !== null ? Number(p.stockTotal) : undefined,
-    })) as Producto[];
+    return (list || []).map(normalizeProduct);
   },
 
   createProducto: (data: {
@@ -289,23 +426,26 @@ export const catalogApi = {
     codigoBarras?: string;
     nombre: string;
     descripcion?: string;
-    precioVenta: number;
+    precioVenta?: number;
     precioVentaBase?: number;
-    costoPromedio: number;
-    stockMinimo: number;
+    costoPromedio?: number;
+    stockMinimo?: number;
     stockMaximo?: number;
     puntoReorden?: number;
+    manejaLotes?: boolean;
     categoriaId: string;
     unidadMedidaId: string;
-  }) =>
-    apiFetch<Producto>('/productos', {
+  }) => {
+    const payload = {
+      ...data,
+      precioVenta: data.precioVenta ?? data.precioVentaBase,
+      precioVentaBase: data.precioVentaBase ?? data.precioVenta,
+    };
+    return apiFetch<ApiProducto>('/productos', {
       method: 'POST',
-      body: JSON.stringify({
-        ...data,
-        precioVenta: data.precioVenta,
-        precioVentaBase: data.precioVentaBase ?? data.precioVenta,
-      }),
-    }),
+      body: JSON.stringify(payload),
+    }).then(normalizeProduct);
+  },
 
   updateProducto: (
     id: string,
@@ -320,18 +460,32 @@ export const catalogApi = {
       stockMinimo: number;
       stockMaximo: number;
       puntoReorden: number;
+      manejaLotes: boolean;
       categoriaId: string;
       unidadMedidaId: string;
       activo: boolean;
     }>,
-  ) =>
-    apiFetch<Producto>(`/productos/${id}`, {
+  ) => {
+    const payload = {
+      ...data,
+      precioVenta: data.precioVenta ?? data.precioVentaBase,
+      precioVentaBase: data.precioVentaBase ?? data.precioVenta,
+    };
+    return apiFetch<ApiProducto>(`/productos/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({
-        ...data,
-        precioVenta: data.precioVenta,
-        precioVentaBase: data.precioVentaBase ?? data.precioVenta,
-      }),
+      body: JSON.stringify(payload),
+    }).then(normalizeProduct);
+  },
+
+  createLote: (data: {
+    productoId: string;
+    codigoLote: string;
+    fechaFabricacion?: string;
+    fechaVencimiento: string;
+  }) =>
+    apiFetch<ApiLote>('/lotes', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   getLotes: async (): Promise<Lote[]> => {
@@ -366,34 +520,43 @@ export const catalogApi = {
 };
 
 export const suppliersApi = {
-  getProveedores: () => apiFetch<Proveedor[]>('/proveedores'),
+  getProveedores: async (): Promise<Proveedor[]> => {
+    const response = await apiFetch<ApiProveedor[]>('/proveedores');
+    return response.map(normalizeSupplier);
+  },
 
   createProveedor: (data: {
-    nombre: string;
-    razonSocial?: string;
+    razonSocial: string;
     ruc: string;
     correo?: string;
     telefono?: string;
-    leadTimeDias?: number;
+    leadTimePromedioDias?: number;
   }) =>
-    apiFetch<Proveedor>('/proveedores', {
+    apiFetch<ApiProveedor>('/proveedores', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then(normalizeSupplier),
 };
 
 export const inventoryApi = {
-  getStock: async () => {
+  getStock: async (): Promise<StockAlmacen[]> => {
     const list = await apiFetch<any[]>('/stock');
-    return (list || []).map((s) => ({
-      ...s,
-      id: s.id,
-      almacenId: s.almacenId || s.almacen_id,
-      productoId: s.productoId || s.producto_id,
-      codigoExistencia: s.codigoExistencia || s.codigo_existencia,
+    return (list || []).map((s: any) => ({
+      id: s.id ?? '',
+      almacenId: s.almacenId || s.almacen_id || '',
+      productoId: s.productoId || s.producto_id || '',
+      codigoExistencia: s.codigoExistencia || s.codigo_existencia || '',
       cantidad: s.cantidad !== undefined ? Number(s.cantidad) : Number(s.cantidad_actual || 0),
       almacen: s.almacen,
-      producto: s.producto,
+      producto: s.producto
+        ? {
+            id: s.producto.id,
+            nombre: s.producto.nombre ?? '',
+            sku: s.producto.sku ?? '',
+            precioVenta: Number(s.producto.precio_venta_base ?? s.producto.precioVenta ?? 0),
+            costoPromedio: Number(s.producto.costo_promedio ?? s.producto.costoPromedio ?? 0),
+          }
+        : undefined,
     })) as StockAlmacen[];
   },
 
@@ -406,12 +569,13 @@ export const inventoryApi = {
     apiFetch<ApiMovimiento>(`/movimientos/${id}`).then(normalizeMovement),
 
   createMovimiento: (data: {
-    tipo: string;
+    tipo: Movimiento['tipo'] | string;
     sucursalId?: string;
-    proveedorId?: string;
     motivo?: string;
     almacenOrigenId?: string;
     almacenDestinoId?: string;
+    proveedorId?: string;
+    completarInmediato?: boolean;
     detalles: {
       productoId: string;
       cantidad: number;
@@ -419,6 +583,7 @@ export const inventoryApi = {
       numeroLote?: string;
       codigoLote?: string;
       fechaVencimiento?: string;
+      loteId?: string;
     }[];
   }) =>
     apiFetch<ApiMovimiento>('/movimientos', {
@@ -466,7 +631,7 @@ export const salesApi = {
         impuesto: Number(v.impuesto ?? 0),
         total: Number(v.total ?? 0),
         fecha: v.fecha_venta || v.fecha || v.created_at || new Date().toISOString(),
-        estado: v.estado,
+        estado: v.estado ?? 'EMITIDA',
         usuario: v.usuario,
         sucursal: v.sucursal,
         almacen: v.almacen,
@@ -523,10 +688,10 @@ export const salesApi = {
       referencia?: string;
     }[];
   }) =>
-    apiFetch<any>('/ventas', {
+    apiFetch<ApiVenta>('/ventas', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then(normalizeSale),
 };
 
 export const analyticsApi = {
@@ -649,19 +814,34 @@ export const reportsApi = {
 };
 
 export const iamApi = {
-  getUsuarios: () => apiFetch<IamUserItem[]>('/iam/usuarios'),
+  getUsuarios: async (): Promise<IamUserItem[]> => {
+    const response = await apiFetch<ApiIamMember[]>('/usuarios-negocio');
+    return response.map((item) => ({
+      id: item.id,
+      usuarioId: item.usuario.id,
+      rol: {
+        ...item.rol,
+        nivel_jerarquia: item.rol.nivel_jerarquia ?? undefined,
+      },
+      activo: item.activo ?? true,
+      usuario: {
+        ...item.usuario,
+        activo: item.activo ?? true,
+      },
+    }));
+  },
 
   createUsuario: (data: {
     nombre: string;
     correo: string;
     password?: string;
-    rol: string;
+    rolId: string;
   }) =>
-    apiFetch<any>('/iam/usuarios', {
+    apiFetch<ApiIamMember>('/usuarios-negocio/invitar', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  getRoles: () => apiFetch<any[]>('/iam/roles'),
+  getRoles: () => apiFetch<IamRole[]>('/roles'),
 };
 

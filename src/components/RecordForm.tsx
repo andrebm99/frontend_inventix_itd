@@ -13,6 +13,7 @@ import {
 import type {
   Almacen,
   Categoria,
+  IamRole,
   MetodoPago,
   Producto,
   Proveedor,
@@ -72,6 +73,7 @@ export function RecordForm({
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [suppliers, setSuppliers] = useState<Proveedor[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<MetodoPago[]>([]);
+  const [roles, setRoles] = useState<IamRole[]>([]);
 
   // Selected values
   const [movementType, setMovementType] = useState<string>(
@@ -337,6 +339,7 @@ export function RecordForm({
           setPaymentMethods(paymentMethodsResult.value);
           if (paymentMethodsResult.value.length > 0) setSelectedPaymentMethod(paymentMethodsResult.value[0].id);
         }
+        iamApi.getRoles().then(setRoles).catch(() => []);
       } catch (err) {
         console.warn("Error loading form metadata:", err);
       }
@@ -397,12 +400,11 @@ export function RecordForm({
           throw new Error("El RUC debe tener exactamente 11 dígitos.");
         }
         await suppliersApi.createProveedor({
-          nombre: getText("nombre"),
-          razonSocial: getText("razonSocial") || undefined,
+          razonSocial: getText("razonSocial") || getText("nombre") || "Proveedor",
           ruc: getText("ruc"),
           correo: getText("correo") || undefined,
           telefono: getText("telefono") || undefined,
-          leadTimeDias: getNumber("leadTimeDias"),
+          leadTimePromedioDias: getNumber("leadTimeDias") || 3,
         });
         notify("Proveedor registrado con éxito");
       } else if (kind === "warehouse") {
@@ -413,16 +415,20 @@ export function RecordForm({
         await organizationApi.createAlmacen({
           sucursalId,
           nombre: getText("nombre"),
-          codigo: getText("codigo"),
-          tipo: getText("tipo") as any,
+          tipo: getText("tipo") as Almacen["tipo"],
+          descripcion: getText("descripcion") || undefined,
         });
         notify("Almacén creado exitosamente");
       } else if (kind === "user") {
+        const rolId = getText("rolId") || roles[0]?.id;
+        if (!rolId) {
+          throw new Error("No hay roles disponibles para asignar al usuario");
+        }
         await iamApi.createUsuario({
           nombre: getText("nombre"),
           correo: getText("correo").toLowerCase(),
           password: getText("password"),
-          rol: getText("rol"),
+          rolId,
         });
         notify("Usuario del equipo registrado");
       } else if (kind === "movement") {
@@ -547,7 +553,7 @@ export function RecordForm({
           ],
         });
         const numComprobanteOficial =
-          createdSale?.numero_comprobante ||
+          (createdSale as any)?.numero_comprobante ||
           createdSale?.numeroComprobante ||
           "EMITIDA";
         notify(
@@ -792,15 +798,16 @@ export function RecordForm({
             />
           </Field>
           <Field label="Rol Asignado">
-            <select name="rol" defaultValue="OPERADOR_ALMACEN">
-              <option value="ADMIN">ADMIN (Acceso total)</option>
-              <option value="SUPERVISOR_ALMACEN">
-                SUPERVISOR_ALMACEN (Aprueba kardex)
-              </option>
-              <option value="OPERADOR_ALMACEN">
-                OPERADOR_ALMACEN (Registra entradas/salidas)
-              </option>
-              <option value="CAJERO">CAJERO (Solo ventas)</option>
+            <select name="rolId" defaultValue={roles[0]?.id}>
+              {roles.length > 0 ? (
+                roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nombre} {r.descripcion ? `(${r.descripcion})` : ""}
+                  </option>
+                ))
+              ) : (
+                <option value="OPERADOR_ALMACEN">OPERADOR_ALMACEN</option>
+              )}
             </select>
           </Field>
         </div>
